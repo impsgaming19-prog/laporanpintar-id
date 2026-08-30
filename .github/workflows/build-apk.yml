@@ -24,9 +24,10 @@ jobs:
       - name: Build web
         run: npx vite build
 
-      - name: Add & Sync Android
+      - name: Setup Android
         run: |
-          npx cap add android || true
+          rm -rf android
+          npx cap add android
           npx cap sync android
 
       - name: Build APK
