@@ -32,15 +32,30 @@ jobs:
           unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-8.2/bin" >> $GITHUB_PATH
 
-      - name: Create Android project
+      - name: Create Android project with icons
         run: |
           rm -rf android
           mkdir -p android/app/src/main/java/com/laporankuyoks/app
           mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/res/mipmap-mdpi
+          mkdir -p android/app/src/main/res/mipmap-hdpi
+          mkdir -p android/app/src/main/res/mipmap-xhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxhdpi
           mkdir -p android/app/src/main/assets
 
-          # Copy web build to assets
           cp -r dist/* android/app/src/main/assets/
+
+          # Copy icons - resize 512 to different densities
+          cp public/icon-512.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp public/icon-192.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp public/icon-192.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp public/icon-192.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+
+          # Also use 512 as round icon
+          cp public/icon-512.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+          cp public/icon-192.png android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+          cp public/icon-192.png android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+          cp public/icon-192.png android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
 
           cat > android/build.gradle << 'EOF'
           buildscript {
@@ -91,7 +106,9 @@ jobs:
             <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
             <uses-permission android:name="android.permission.VIBRATE"/>
             <application android:allowBackup="true" android:usesCleartextTraffic="true" android:theme="@style/AppTheme"
-              android:name=".LaporanApp">
+              android:name=".LaporanApp"
+              android:icon="@mipmap/ic_launcher"
+              android:roundIcon="@mipmap/ic_launcher_round">
               <activity android:name=".MainActivity" android:exported="true"
                 android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
                 android:launchMode="singleTask">
@@ -193,7 +210,6 @@ jobs:
             <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
               <item name="android:statusBarColor">#FF000000</item>
               <item name="android:navigationBarColor">#FF000000</item>
-              <item name="android:windowFullscreen">false</item>
             </style>
           </resources>
           EOF
