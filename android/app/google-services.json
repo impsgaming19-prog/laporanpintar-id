@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "276969227812",
+    "project_id": "laporankuyoks",
+    "storage_bucket": "laporankuyoks.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:276969227812:android:placeholder",
+        "android_client_info": {
+          "package_name": "com.laporankuyoks.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAALUbktKkL1PxmqLUdR7czX_-kCukW_94"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
