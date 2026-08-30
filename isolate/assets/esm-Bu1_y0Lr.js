@@ -1,0 +1,1 @@
+import{registerPlugin as e}from"./dist-CWNxW9Li.js";var t=e(`PushNotifications`,{});export{t as PushNotifications};
