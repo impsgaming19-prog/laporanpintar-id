@@ -1,0 +1,17 @@
+{
+	"appId": "com.laporankuyoks.app",
+	"appName": "LaporanPintarID",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		}
+	}
+}
