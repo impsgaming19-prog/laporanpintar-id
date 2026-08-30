@@ -27,11 +27,8 @@ jobs:
       - name: Build web
         run: npx vite build
 
-      - name: Setup Capacitor Android
-        run: |
-          ls -la dist/
-          npx --yes @capacitor/cli add android || true
-          npx --yes @capacitor/cli sync android
+      - name: Sync to Android
+        run: npx cap sync android
 
       - name: Build APK
         run: |
