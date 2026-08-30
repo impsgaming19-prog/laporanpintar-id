@@ -21,13 +21,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Remove firebase-admin (not needed for web)
+        run: npm uninstall firebase-admin
+
       - name: Build web
         run: npx vite build
 
       - name: Setup Android
         run: |
-          rm -rf android
-          npx cap add android
+          npx cap add android || true
           npx cap sync android
 
       - name: Build APK
