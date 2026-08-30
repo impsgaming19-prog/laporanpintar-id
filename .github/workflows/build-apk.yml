@@ -18,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Install dependencies
+      - name: Install deps
         run: npm install
 
       - name: Remove firebase-admin
@@ -27,8 +27,12 @@ jobs:
       - name: Build web
         run: npx vite build
 
-      - name: Sync to Android
-        run: npx cap sync android
+      - name: Fresh Capacitor setup
+        run: |
+          rm -rf android
+          npm install @capacitor/cli @capacitor/core @capacitor/android @capacitor/push-notifications
+          npx cap add android
+          npx cap sync android
 
       - name: Build APK
         run: |
