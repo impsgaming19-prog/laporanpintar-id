@@ -35,7 +35,22 @@
         </provider>
     </application>
 
-    <!-- Permissions -->
-
+    <!-- Core Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- Camera & Video Call Permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    
+    <!-- Audio & Call Permissions -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <!-- Push Notification Permissions -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- Storage Permissions -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
 </manifest>
