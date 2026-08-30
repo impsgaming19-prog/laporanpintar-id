@@ -18,21 +18,130 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Install deps
-        run: npm install
-
-      - name: Remove firebase-admin
-        run: npm uninstall firebase-admin || true
+      - uses: gradle/actions/setup-gradle@v4
 
       - name: Build web
-        run: npx vite build
+        run: |
+          npm install
+          npm uninstall firebase-admin || true
+          npx vite build
 
-      - name: Fresh Capacitor setup
+      - name: Create Android WebView app
         run: |
           rm -rf android
-          npm install @capacitor/cli @capacitor/core @capacitor/android @capacitor/push-notifications
-          npx cap add android
-          npx cap sync android
+          mkdir -p android/app/src/main/java/com/laporankuyoks/app
+          mkdir -p android/app/src/main/res/values
+
+          # build.gradle (root)
+          cat > android/build.gradle << 'EOF'
+          buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+
+          cat > android/settings.gradle << 'EOF'
+          rootProject.name = 'LaporanPintarID'
+          include ':app'
+          EOF
+
+          cat > android/gradle.properties << 'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          # app/build.gradle
+          cat > android/app/build.gradle << 'EOF'
+          apply plugin: 'com.android.application'
+          android {
+            namespace 'com.laporankuyoks.app'
+            compileSdk 34
+            defaultConfig {
+              applicationId "com.laporankuyoks.app"
+              minSdk 22
+              targetSdk 34
+              versionCode 1
+              versionName "1.0"
+            }
+            buildTypes { release { minifyEnabled false } }
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_17
+              targetCompatibility JavaVersion.VERSION_17
+            }
+          }
+          dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }
+          EOF
+
+          # AndroidManifest
+          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+            <uses-permission android:name="android.permission.CAMERA"/>
+            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+            <application android:allowBackup="true" android:usesCleartextTraffic="true" android:theme="@style/AppTheme">
+              <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          # MainActivity.java
+          cat > android/app/src/main/java/com/laporankuyoks/app/MainActivity.java << 'JAVA'
+          package com.laporankuyoks.app;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.graphics.Color;
+
+          public class MainActivity extends Activity {
+            private WebView webView;
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              getWindow().setStatusBarColor(Color.BLACK);
+              getWindow().setNavigationBarColor(Color.BLACK);
+              webView = new WebView(this);
+              setContentView(webView);
+              WebSettings ws = webView.getSettings();
+              ws.setJavaScriptEnabled(true);
+              ws.setDomStorageEnabled(true);
+              ws.setMediaPlaybackRequiresUserGesture(false);
+              ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+              webView.setWebViewClient(new WebViewClient());
+              webView.setWebChromeClient(new WebChromeClient());
+              webView.loadUrl("https://laporankuyoks.freebuff.app");
+            }
+            @Override
+            public void onBackPressed() {
+              if (webView.canGoBack()) webView.goBack();
+              else super.onBackPressed();
+            }
+          }
+          JAVA
+
+          # styles.xml
+          cat > android/app/src/main/res/values/styles.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+              <item name="android:statusBarColor">#FF000000</item>
+              <item name="android:navigationBarColor">#FF000000</item>
+            </style>
+          </resources>
+          EOF
+
+          # Create gradle wrapper
+          gradle wrapper --gradle-version 8.2
 
       - name: Build APK
         run: |
