@@ -18,13 +18,18 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
-
       - name: Build web
         run: |
           npm install
           npm uninstall firebase-admin || true
           npx vite build
+
+      - name: Download Gradle
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip -O /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-8.2/bin" >> $GITHUB_PATH
+          export PATH="/opt/gradle-8.2/bin:$PATH"
 
       - name: Create Android WebView app
         run: |
@@ -32,27 +37,25 @@ jobs:
           mkdir -p android/app/src/main/java/com/laporankuyoks/app
           mkdir -p android/app/src/main/res/values
 
-          # build.gradle (root)
-          cat > android/build.gradle << 'EOF'
+          cat > android/build.gradle << 'GEOF'
           buildscript {
             repositories { google(); mavenCentral() }
             dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
           }
           allprojects { repositories { google(); mavenCentral() } }
-          EOF
+          GEOF
 
-          cat > android/settings.gradle << 'EOF'
+          cat > android/settings.gradle << 'SEOF'
           rootProject.name = 'LaporanPintarID'
           include ':app'
-          EOF
+          SEOF
 
-          cat > android/gradle.properties << 'EOF'
+          cat > android/gradle.properties << 'PEOF'
           android.useAndroidX=true
           org.gradle.jvmargs=-Xmx2048m
-          EOF
+          PEOF
 
-          # app/build.gradle
-          cat > android/app/build.gradle << 'EOF'
+          cat > android/app/build.gradle << 'AEOF'
           apply plugin: 'com.android.application'
           android {
             namespace 'com.laporankuyoks.app'
@@ -71,10 +74,9 @@ jobs:
             }
           }
           dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }
-          EOF
+          AEOF
 
-          # AndroidManifest
-          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          cat > android/app/src/main/AndroidManifest.xml << 'MEOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET"/>
@@ -90,10 +92,9 @@ jobs:
               </activity>
             </application>
           </manifest>
-          EOF
+          MEOF
 
-          # MainActivity.java
-          cat > android/app/src/main/java/com/laporankuyoks/app/MainActivity.java << 'JAVA'
+          cat > android/app/src/main/java/com/laporankuyoks/app/MainActivity.java << 'JEOF'
           package com.laporankuyoks.app;
           import android.app.Activity;
           import android.os.Bundle;
@@ -127,10 +128,9 @@ jobs:
               else super.onBackPressed();
             }
           }
-          JAVA
+          JEOF
 
-          # styles.xml
-          cat > android/app/src/main/res/values/styles.xml << 'EOF'
+          cat > android/app/src/main/res/values/styles.xml << 'SEOF2'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
             <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
@@ -138,10 +138,9 @@ jobs:
               <item name="android:navigationBarColor">#FF000000</item>
             </style>
           </resources>
-          EOF
+          SEOF2
 
-          # Create gradle wrapper
-          gradle wrapper --gradle-version 8.2
+          cd android && gradle wrapper --gradle-version 8.2 && cd ..
 
       - name: Build APK
         run: |
