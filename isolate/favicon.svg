@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <linearGradient id="hat" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2d2d3a"/>
+      <stop offset="100%" stop-color="#1a1a24"/>
+    </linearGradient>
+    <linearGradient id="chain" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#71717a"/>
+      <stop offset="25%" stop-color="#d4d4d8"/>
+      <stop offset="50%" stop-color="#fafafa"/>
+      <stop offset="75%" stop-color="#d4d4d8"/>
+      <stop offset="100%" stop-color="#71717a"/>
+    </linearGradient>
+    <linearGradient id="dollar" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4d4d8"/>
+      <stop offset="50%" stop-color="#fafafa"/>
+      <stop offset="100%" stop-color="#a1a1aa"/>
+    </linearGradient>
+    <linearGradient id="mask" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#27272a"/>
+      <stop offset="100%" stop-color="#18181b"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" fill="url(#bg)" rx="80"/>
+
+  <!-- Bucket Hat -->
+  <ellipse cx="256" cy="185" rx="140" ry="25" fill="#1e1e28"/>
+  <path d="M116,185 L136,120 Q256,95 376,120 L396,185" fill="url(#hat)" stroke="#3a3a4a" stroke-width="1"/>
+  <ellipse cx="256" cy="185" rx="145" ry="28" fill="none" stroke="#3a3a4a" stroke-width="1.5"/>
+
+  <!-- Face/Mask area -->
+  <path d="M160,200 Q160,260 200,310 L256,340 L312,310 Q352,260 352,200 Z" fill="url(#mask)"/>
+
+  <!-- Ribbed mask texture -->
+  <g opacity="0.15" stroke="#52525b" stroke-width="0.8">
+    <line x1="180" y1="210" x2="332" y2="210"/>
+    <line x1="175" y1="220" x2="337" y2="220"/>
+    <line x1="172" y1="230" x2="340" y2="230"/>
+    <line x1="170" y1="240" x2="342" y2="240"/>
+    <line x1="172" y1="250" x2="340" y2="250"/>
+    <line x1="175" y1="260" x2="337" y2="260"/>
+    <line x1="178" y1="270" x2="334" y2="270"/>
+    <line x1="182" y1="280" x2="330" y2="280"/>
+    <line x1="188" y1="290" x2="324" y2="290"/>
+    <line x1="195" y1="300" x2="317" y2="300"/>
+  </g>
+
+  <!-- Dollar sign on mask -->
+  <text x="256" y="275" text-anchor="middle" font-family="Georgia, serif" font-weight="900" font-size="80" fill="url(#dollar)" filter="url(#glow)" opacity="0.95">$</text>
+
+  <!-- Small asterisk/star next to dollar -->
+  <text x="200" y="260" text-anchor="middle" font-family="Arial" font-size="18" fill="#a1a1aa" opacity="0.6">✦</text>
+
+  <!-- Sunglasses hint -->
+  <rect x="185" y="195" width="55" height="12" rx="6" fill="#0a0a0a" opacity="0.5"/>
+  <rect x="272" y="195" width="55" height="12" rx="6" fill="#0a0a0a" opacity="0.5"/>
+  <line x1="240" y1="201" x2="272" y2="201" stroke="#3a3a4a" stroke-width="1.5"/>
+
+  <!-- Silver Chain -->
+  <g>
+    <!-- Chain links -->
+    <ellipse cx="140" cy="380" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="168" cy="385" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="196" cy="390" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="224" cy="393" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="256" cy="395" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4.5"/>
+    <ellipse cx="288" cy="393" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="316" cy="390" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="344" cy="385" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+    <ellipse cx="372" cy="380" rx="14" ry="8" fill="none" stroke="url(#chain)" stroke-width="4"/>
+  </g>
+
+  <!-- Chain shine -->
+  <g opacity="0.3">
+    <ellipse cx="256" cy="393" rx="10" ry="5" fill="white" opacity="0.4"/>
+    <ellipse cx="196" cy="388" rx="8" ry="4" fill="white" opacity="0.3"/>
+    <ellipse cx="316" cy="388" rx="8" ry="4" fill="white" opacity="0.3"/>
+  </g>
+
+  <!-- Subtle ambient light -->
+  <circle cx="256" cy="200" r="120" fill="white" opacity="0.02"/>
+</svg>
