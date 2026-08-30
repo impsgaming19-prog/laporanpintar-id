@@ -18,6 +18,8 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - uses: gradle/actions/setup-gradle@v4
+
       - name: Build web
         run: |
           npm install
@@ -29,33 +31,36 @@ jobs:
           wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-8.2/bin" >> $GITHUB_PATH
-          export PATH="/opt/gradle-8.2/bin:$PATH"
 
-      - name: Create Android WebView app
+      - name: Create Android project
         run: |
           rm -rf android
           mkdir -p android/app/src/main/java/com/laporankuyoks/app
           mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/assets
 
-          cat > android/build.gradle << 'GEOF'
+          # Copy web build to assets
+          cp -r dist/* android/app/src/main/assets/
+
+          cat > android/build.gradle << 'EOF'
           buildscript {
             repositories { google(); mavenCentral() }
             dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
           }
           allprojects { repositories { google(); mavenCentral() } }
-          GEOF
+          EOF
 
-          cat > android/settings.gradle << 'SEOF'
+          cat > android/settings.gradle << 'EOF'
           rootProject.name = 'LaporanPintarID'
           include ':app'
-          SEOF
+          EOF
 
-          cat > android/gradle.properties << 'PEOF'
+          cat > android/gradle.properties << 'EOF'
           android.useAndroidX=true
           org.gradle.jvmargs=-Xmx2048m
-          PEOF
+          EOF
 
-          cat > android/app/build.gradle << 'AEOF'
+          cat > android/app/build.gradle << 'EOF'
           apply plugin: 'com.android.application'
           android {
             namespace 'com.laporankuyoks.app'
@@ -74,17 +79,22 @@ jobs:
             }
           }
           dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }
-          AEOF
+          EOF
 
-          cat > android/app/src/main/AndroidManifest.xml << 'MEOF'
+          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET"/>
             <uses-permission android:name="android.permission.RECORD_AUDIO"/>
             <uses-permission android:name="android.permission.CAMERA"/>
             <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
-            <application android:allowBackup="true" android:usesCleartextTraffic="true" android:theme="@style/AppTheme">
-              <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize">
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+            <uses-permission android:name="android.permission.VIBRATE"/>
+            <application android:allowBackup="true" android:usesCleartextTraffic="true" android:theme="@style/AppTheme"
+              android:name=".LaporanApp">
+              <activity android:name=".MainActivity" android:exported="true"
+                android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+                android:launchMode="singleTask">
                 <intent-filter>
                   <action android:name="android.intent.action.MAIN"/>
                   <category android:name="android.intent.category.LAUNCHER"/>
@@ -92,9 +102,32 @@ jobs:
               </activity>
             </application>
           </manifest>
-          MEOF
+          EOF
 
-          cat > android/app/src/main/java/com/laporankuyoks/app/MainActivity.java << 'JEOF'
+          cat > android/app/src/main/java/com/laporankuyoks/app/LaporanApp.java << 'EOF'
+          package com.laporankuyoks.app;
+          import android.app.Application;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.os.Build;
+
+          public class LaporanApp extends Application {
+            public static final String CHANNEL_ID = "laporan_notifications";
+            @Override
+            public void onCreate() {
+              super.onCreate();
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel channel = new NotificationChannel(
+                  CHANNEL_ID, "Notifikasi Laporan", NotificationManager.IMPORTANCE_HIGH);
+                channel.setDescription("Notifikasi dari Laporan Pintar");
+                NotificationManager nm = getSystemService(NotificationManager.class);
+                nm.createNotificationChannel(channel);
+              }
+            }
+          }
+          EOF
+
+          cat > android/app/src/main/java/com/laporankuyoks/app/MainActivity.java << 'EOF'
           package com.laporankuyoks.app;
           import android.app.Activity;
           import android.os.Bundle;
@@ -102,23 +135,47 @@ jobs:
           import android.webkit.WebViewClient;
           import android.webkit.WebChromeClient;
           import android.webkit.WebSettings;
+          import android.webkit.WebResourceRequest;
           import android.graphics.Color;
+          import android.view.View;
+          import android.view.Window;
+          import android.view.WindowManager;
+          import android.os.Build;
 
           public class MainActivity extends Activity {
             private WebView webView;
             @Override
             protected void onCreate(Bundle savedInstanceState) {
               super.onCreate(savedInstanceState);
-              getWindow().setStatusBarColor(Color.BLACK);
-              getWindow().setNavigationBarColor(Color.BLACK);
+              Window w = getWindow();
+              w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+              w.setStatusBarColor(Color.BLACK);
+              w.setNavigationBarColor(Color.BLACK);
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                w.getAttributes().layoutInDisplayCutoutMode =
+                  WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+              }
               webView = new WebView(this);
               setContentView(webView);
+              webView.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
               WebSettings ws = webView.getSettings();
               ws.setJavaScriptEnabled(true);
               ws.setDomStorageEnabled(true);
+              ws.setDatabaseEnabled(true);
               ws.setMediaPlaybackRequiresUserGesture(false);
+              ws.setAllowFileAccess(true);
+              ws.setAllowContentAccess(true);
               ws.setCacheMode(WebSettings.LOAD_DEFAULT);
-              webView.setWebViewClient(new WebViewClient());
+              ws.setLoadWithOverviewMode(true);
+              ws.setUseWideViewPort(true);
+              webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                  view.loadUrl(req.getUrl().toString());
+                  return true;
+                }
+              });
               webView.setWebChromeClient(new WebChromeClient());
               webView.loadUrl("https://laporankuyoks.freebuff.app");
             }
@@ -128,17 +185,18 @@ jobs:
               else super.onBackPressed();
             }
           }
-          JEOF
+          EOF
 
-          cat > android/app/src/main/res/values/styles.xml << 'SEOF2'
+          cat > android/app/src/main/res/values/styles.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
             <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
               <item name="android:statusBarColor">#FF000000</item>
               <item name="android:navigationBarColor">#FF000000</item>
+              <item name="android:windowFullscreen">false</item>
             </style>
           </resources>
-          SEOF2
+          EOF
 
           cd android && gradle wrapper --gradle-version 8.2 && cd ..
 
@@ -152,5 +210,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: app-debug
+          name: LaporanPintarID-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
