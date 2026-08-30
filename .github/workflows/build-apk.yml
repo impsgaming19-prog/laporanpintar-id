@@ -1,8 +1,6 @@
 name: Build APK
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -26,11 +24,10 @@ jobs:
       - name: Build web
         run: npx vite build
 
-      - name: Add Android
-        run: npx cap add android || true
-
-      - name: Sync Android
-        run: npx cap sync android
+      - name: Add & Sync Android
+        run: |
+          npx cap add android || true
+          npx cap sync android
 
       - name: Build APK
         run: |
