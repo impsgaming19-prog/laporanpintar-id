@@ -8,11 +8,8 @@ import {
   PhoneIncoming,
   ArrowRight,
   Wallet,
-  Menu,
   ChevronDown,
   Globe,
-  Users,
-  Send,
   Search,
   ArrowRightCircle,
   QrCode,
@@ -21,37 +18,90 @@ import {
   XCircle,
   RefreshCw,
   Copy,
+  LogOut,
+  LogIn,
+  UserPlus,
+  Settings,
+  Users,
+  BarChart3,
+  Server,
+  UserCog,
+  Timer,
+  Ban,
+  Trash2,
+  Plus,
+  Minus,
+  KeyRound,
 } from "lucide-react";
 
 import {
   apiCreatePayment,
-  apiCheckPayment,
-  apiCreateNumberOrder,
+  apiAdminAdjustBalance,
+  apiAdminListUsers,
+  apiAdminOrders,
+  apiAdminRefundOrder,
+  apiAdminStats,
   apiGetOrderStatus,
   apiListCountries,
   apiListServices,
+  apiShopBuyWithBalance,
+  apiShopCancelOrder,
+  apiShopCheckMyOrder,
+  apiShopCreateStaff,
+  apiShopDeleteStaff,
+  apiShopDepositCreate,
+  apiShopDepositPoll,
+  apiShopGetSettings,
+  apiShopLogin,
+  apiShopOrders,
+  apiShopRecordOtp,
+  apiShopRegister,
+  apiShopRegisterOwner,
+  apiShopSetServerEnabled,
+  apiShopWallet,
   computeSellPrice,
   formatRupiah,
+  type AdminOrder,
+  type AdminStats,
+  type AdminUser,
   type Country,
   type ProviderId,
   type Service,
+  type ShopOrder,
+  type ShopUser,
 } from "@/lib/convexApi";
 
-/* ---------- brand colors ---------- */
+/* ---------- brand ---------- */
 const RED = "#e10600";
 const DARK = "#0b0b0f";
-const WHITE = "#ffffff";
 const ACCENT = "#00e676";
 
-/* ---------- server data ---------- */
-const SERVER_LIST: {
+const SESSION_KEY = "kakonokos_session";
+
+type Session = { user: ShopUser };
+
+function loadSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (s && s.user && s.user.id) return s as Session;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+type ServerDef = {
   id: string;
   label: string;
   provider: ProviderId;
   providerLabel: string;
   description: string;
   badge: string | null;
-}[] = [
+};
+
+const SERVER_LIST: ServerDef[] = [
   {
     id: "jasav1",
     label: "JasaOTP v1",
@@ -90,64 +140,84 @@ const SERVER_LIST: {
   },
 ];
 
-type HistoryItem = {
-  id: string;
-  server: string;
-  country: string;
-  service: string;
-  price: number;
-  status: string;
-  waktu: string;
-  orderId?: string;
-  otp?: string;
+const roleMeta: Record<string, { label: string; cls: string }> = {
+  owner: { label: "OWNER", cls: "bg-red-500/15 text-red-400 border-red-500/30" },
+  cs: { label: "CS", cls: "bg-sky-500/15 text-sky-400 border-sky-500/30" },
+  customer: { label: "Customer", cls: "bg-white/5 text-zinc-300 border-white/10" },
 };
 
-type PayPhase =
-  | "idle"
-  | "creating"
-  | "waitingPayment"
-  | "ordering"
-  | "waitingOtp"
-  | "success"
-  | "error";
+const CANCEL_MIN_SECONDS = 120;
 
+type PayPhase = "idle" | "processing" | "waitingOtp" | "success" | "error";
+
+/* ===================================================================== */
 export default function NokosShopPage() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(() => loadSession());
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [orders, setOrders] = useState<ShopOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [selectedServerId, setSelectedServerId] = useState(SERVER_LIST[0].id);
-  const server = SERVER_LIST.find((s) => s.id === selectedServerId) || SERVER_LIST[0];
+  /* ---------- visibilitas server (dari Panel Admin Owner) ---------- */
+  const [serverVisibility, setServerVisibility] = useState<Record<string, boolean>>({});
+  const visibleServers = useMemo(
+    () => SERVER_LIST.filter((s) => serverVisibility[s.id] !== false),
+    [serverVisibility]
+  );
 
-  /* ---------- data live dari server provider ---------- */
+  const [selectedServerId, setSelectedServerId] = useState<string>(SERVER_LIST[0].id);
+  const server =
+    visibleServers.find((s) => s.id === selectedServerId) || visibleServers[0] || null;
+
   const [countries, setCountries] = useState<Country[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [selectedCountryId, setSelectedCountryId] = useState<number | string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<number | string | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
-  // Dipakai tombol "Muat Ulang Data" supaya efek pemuatan data benar-benar jalan lagi.
   const [reloadToken, setReloadToken] = useState(0);
-  // Pencarian layanan di dalam kartu layanan (biar cepat ketemu).
   const [serviceQuery, setServiceQuery] = useState("");
-  // Pencarian negara di kartu negara.
   const [countryQuery, setCountryQuery] = useState("");
-  // Total negara gabungan semua server (untuk statistik di hero).
   const [totalCountries, setTotalCountries] = useState<number | null>(null);
-  const [depositOpen, setDepositOpen] = useState(false);
 
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-
-  /* ---------- checkout / deposit modal state ---------- */
+  /* ---------- buy overlay ---------- */
   const [payPhase, setPayPhase] = useState<PayPhase>("idle");
+  const buyRunRef = useRef(false);
   const [payMessage, setPayMessage] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
-  const [payReference, setPayReference] = useState<string | null>(null);
-  const [payUrl, setPayUrl] = useState<string | null>(null);
-  const [payAmount, setPayAmount] = useState(0);
   const [resultOtp, setResultOtp] = useState<string | null>(null);
   const [resultOrderId, setResultOrderId] = useState<string | null>(null);
   const [resultPhone, setResultPhone] = useState<string | null>(null);
+  const [payAmount, setPayAmount] = useState(0);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /* ---------- deposit modal ---------- */
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(25000);
+  const [depositBusy, setDepositBusy] = useState(false);
+  const [depositStatus, setDepositStatus] = useState<string | null>(null);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositRef, setDepositRef] = useState<string | null>(null);
+  const depositPolling = useRef(false);
+
+  /* ---------- panel admin (owner/cs) ---------- */
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState<"ringkasan" | "customer" | "transaksi" | "staff" | "server">("ringkasan");
+  const [adminStatsData, setAdminStatsData] = useState<AdminStats | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [adminOrdersData, setAdminOrdersData] = useState<AdminOrder[]>([]);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminMsg, setAdminMsg] = useState<string | null>(null);
+
+  /* ---------- cancel/refund ---------- */
+  const [cancelTarget, setCancelTarget] = useState<ShopOrder | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const ordersRef = useRef<ShopOrder[]>([]);
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
 
   const selectedService = useMemo(() => {
     if (selectedServiceId == null) return null;
@@ -159,33 +229,12 @@ export default function NokosShopPage() {
     return computeSellPrice(selectedService.price);
   }, [selectedService]);
 
-  /* ---------- total negara semua server (statistik hero) ---------- */
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // Gabungkan daftar negara dari server yang aktif; yang gagal diabaikan.
-      const ids: ProviderId[] = ["kirimkode", "ditznesia"];
-      const lists = await Promise.all(ids.map((id) => apiListCountries(id).catch(() => [] as Country[])));
-      if (cancelled) return;
-      const seen = new Set<string>();
-      for (const list of lists) {
-        for (const c of list) seen.add(String(c.name || "").trim().toLowerCase());
-      }
-      setTotalCountries(seen.size > 0 ? seen.size : null);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /* ---------- filter hasil pencarian negara ---------- */
   const visibleCountries = useMemo(() => {
     const q = countryQuery.trim().toLowerCase();
     if (!q) return countries;
     return countries.filter((c) => String(c.name || "").toLowerCase().includes(q));
   }, [countries, countryQuery]);
 
-  /* ---------- filter hasil pencarian layanan ---------- */
   const visibleServices = useMemo(() => {
     const q = serviceQuery.trim().toLowerCase();
     if (!q) return services;
@@ -196,8 +245,79 @@ export default function NokosShopPage() {
     });
   }, [services, serviceQuery]);
 
+  const showNotice = (text: string) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setNotice(text);
+    noticeTimer.current = setTimeout(() => setNotice(null), 4500);
+  };
+
+  /* ---------- muat ulang wallet + riwayat ---------- */
+  const refreshWalletOrders = async (userId: string) => {
+    const [w, o] = await Promise.all([
+      apiShopWallet(userId).catch(() => null),
+      apiShopOrders(userId).catch(() => null),
+    ]);
+    if (w?.ok && w.wallet) setWalletBalance(w.wallet.balance);
+    if (o?.ok && o.orders) setOrders(o.orders);
+  };
+
+  useEffect(() => {
+    if (!session) {
+      setWalletBalance(null);
+      setOrders([]);
+      return;
+    }
+    setOrdersLoading(true);
+    refreshWalletOrders(session.user.id).finally(() => setOrdersLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
+  }, []);
+
+  /* ---------- muat pengaturan server (visibilitas) ---------- */
+  useEffect(() => {
+    let cancelled = false;
+    apiShopGetSettings()
+      .then((r) => {
+        if (!cancelled && r.ok && r.servers) setServerVisibility(r.servers);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [adminOpen]);
+
+  /* kalau server yang dipilih disembunyikan owner, pindah otomatis */
+  useEffect(() => {
+    if (visibleServers.length === 0) return;
+    if (!visibleServers.some((s) => s.id === selectedServerId)) {
+      setSelectedServerId(visibleServers[0].id);
+    }
+  }, [visibleServers, selectedServerId]);
+
+  /* ---------- total negara semua server (statistik hero) ---------- */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ids: ProviderId[] = ["kirimkode", "ditznesia"];
+      const lists = await Promise.all(ids.map((id) => apiListCountries(id).catch(() => [] as Country[])));
+      if (cancelled) return;
+      const seen = new Set<string>();
+      for (const list of lists) for (const c of list) seen.add(String(c.name || "").trim().toLowerCase());
+      setTotalCountries(seen.size > 0 ? seen.size : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /* ---------- ambil negara per server ---------- */
   useEffect(() => {
+    if (!server) return;
     let cancelled = false;
     setCountries([]);
     setServices([]);
@@ -205,11 +325,10 @@ export default function NokosShopPage() {
     setSelectedServiceId(null);
     setDataError(null);
     setCountryQuery("");
+    setServiceQuery("");
 
     const load = async () => {
       setLoadingData(true);
-      // Coba otomatis beberapa kali: kalau server baru saja diaktifkan,
-      // permintaan pertama bisa gagal sesaat — jangan langsung menyerah.
       let lastErr: any = null;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
@@ -240,14 +359,13 @@ export default function NokosShopPage() {
     load();
     return () => {
       cancelled = true;
-      stopPoll();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [server.id, reloadToken]);
+  }, [server?.id, reloadToken]);
 
   /* ---------- ambil layanan saat negara berubah ---------- */
   useEffect(() => {
-    if (selectedCountryId == null) return;
+    if (!server || selectedCountryId == null) return;
     let cancelled = false;
     setServices([]);
     setSelectedServiceId(null);
@@ -283,129 +401,111 @@ export default function NokosShopPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCountryId, server.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCountryId, server?.id]);
 
-  /* ---------- polling helper ---------- */
-  const stopPoll = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
+  /* ---------- auth helpers ---------- */
+  const applySession = (user: ShopUser) => {
+    const s: Session = { user };
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    } catch {
+      /* ignore */
     }
+    setSession(s);
   };
 
-  const pushHistory = (item: Omit<HistoryItem, "id" | "waktu">) => {
-    setHistory((prev) => [
-      { ...item, id: item.orderId || `t-${Date.now()}`, waktu: new Date().toLocaleString("id-ID") },
-      ...prev.slice(0, 19),
-    ]);
+  const handleLogout = () => {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* ignore */
+    }
+    setSession(null);
+    closePaySheet();
+    setAdminOpen(false);
   };
 
   const closePaySheet = () => {
-    stopPoll();
+    buyRunRef.current = false;
     setPayPhase("idle");
     setPayMessage(null);
     setPayError(null);
-    setPayReference(null);
-    setPayUrl(null);
     setResultOtp(null);
     setResultOrderId(null);
     setResultPhone(null);
+    setPayAmount(0);
+  };
+
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const statusMeta = (status: string): { label: string; cls: string } => {
+    if (status === "done" || status === "otp") return { label: "OTP masuk", cls: "bg-emerald-500/15 text-emerald-400" };
+    if (status === "ordered") return { label: "Menunggu OTP", cls: "bg-amber-500/15 text-amber-400" };
+    if (status === "refunded") return { label: "Dikembalikan", cls: "bg-sky-500/15 text-sky-400" };
+    return { label: "Gagal", cls: "bg-red-500/15 text-red-400" };
   };
 
   /* =====================================================================
-   * ALUR BELI NOMOR
-   * 1) invoice Paymentku QRIS sebesar harga final
-   * 2) tunggu lunas (auto-polling)
-   * 3) pesan nomor ke server provider (potong saldo owner di provider)
-   * 4) polling OTP sampai masuk
+   * BELI NOMOR (potong saldo; gagal = refund otomatis; OTP disimpan)
    * ===================================================================== */
   const handleBuy = async () => {
-    if (!selectedService) {
+    if (!session || !selectedService || selectedCountryId == null || !server) {
       setPayError("Pilih layanan dulu.");
+      setPayPhase("error");
       return;
     }
-    setPayPhase("creating");
+    const bal = walletBalance ?? 0;
+    if (bal < sellPrice) {
+      setDepositAmount(Math.max(5000, sellPrice));
+      setDepositOpen(true);
+      setPayError(`Saldo kamu Rp ${formatRupiah(bal)}, kurang untuk layanan ini (Rp ${formatRupiah(sellPrice)}). Silakan isi saldo dulu.`);
+      setPayPhase("error");
+      return;
+    }
+
+    buyRunRef.current = true;
+    setPayPhase("processing");
     setPayError(null);
-    setPayMessage("Membuat invoice pembayaran QR...");
     setPayAmount(sellPrice);
+    setPayMessage("Memotong saldo & memesan nomor dari server provider...");
 
     try {
-      const inv = await apiCreatePayment({
-        amount: sellPrice,
-        description: `${server.label} • ${selectedService.name || "Nomor OTP"}`,
-      });
-      if (!inv.ok || !inv.payUrl || !inv.referenceId) {
-        setPayPhase("error");
-        setPayError(inv.error || "Gagal membuat invoice pembayaran.");
-        return;
-      }
-      setPayReference(inv.referenceId);
-      setPayUrl(inv.payUrl);
-      setPayPhase("waitingPayment");
-      setPayMessage("Menunggu pembayaran QR. Buka link QR lalu bayar, status dicek otomatis...");
-
-      // Buka halaman QR (popup kalau diizinkan browser)
-      try {
-        window.open(inv.payUrl, "_blank", "noopener");
-      } catch {
-        /* popup diblokir — user bisa klik tombol */
-      }
-
-      // Polling status pembayaran
-      let paid = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 4000));
-        const st = await apiCheckPayment(inv.referenceId).catch(() => null);
-        if (st?.ok && st.paid) {
-          paid = true;
-          break;
-        }
-      }
-      if (!paid) {
-        setPayPhase("error");
-        setPayError(
-          "Pembayaran belum terkonfirmasi. Kalau sudah bayar, klik 'Cek Pembayaran' di bawah."
-        );
-        return;
-      }
-
-      setPayPhase("ordering");
-      setPayMessage("Pembayaran diterima. Memesan nomor dari server provider...");
-
-      const order = await apiCreateNumberOrder({
+      const res = await apiShopBuyWithBalance({
+        userId: session.user.id,
         provider: server.provider,
-        country: selectedCountryId!,
+        country: selectedCountryId,
         service: selectedService.service ?? selectedService.id!,
         providerPrice: selectedService.price,
+        countryName: countries.find((c) => String(c.id) === String(selectedCountryId))?.name,
+        serviceName: selectedService.name ?? undefined,
       });
-      if (!order.ok || !order.orderId) {
+      if (!res.ok || !res.orderId) {
+        if (res.refunded && session) await refreshWalletOrders(session.user.id);
         setPayPhase("error");
         setPayError(
-          order.error ||
-            "Pembayaran sukses tapi server provider gagal memesan nomor. Hubungi admin untuk diproses manual."
+          res.error || "Gagal memesan nomor. Kalau saldo sudah terpotong, saldo dikembalikan otomatis."
         );
         return;
       }
 
-      setResultOrderId(order.orderId);
-      pushHistory({
-        orderId: order.orderId,
-        server: server.label,
-        country: countries.find((c) => String(c.id) === String(selectedCountryId))?.name || "",
-        service: selectedService.name || "",
-        price: sellPrice,
-        status: "Menunggu OTP",
-      });
-
+      if (res.balance != null) setWalletBalance(res.balance);
+      setResultOrderId(res.orderId);
       setPayPhase("waitingOtp");
-      setPayMessage("Nomor dipesan. Menunggu OTP masuk...");
+      setPayMessage("Nomor dipesan! Menunggu OTP masuk (bisa ±1–5 menit)...");
 
-      // Polling OTP dari provider
+      // Polling OTP (maks ±2 menit di layar ini)
       let otp: string | null = null;
       let phone: string | null = null;
       for (let i = 0; i < 24; i++) {
         await new Promise((r) => setTimeout(r, 5000));
-        const st = await apiGetOrderStatus(server.provider, order.orderId).catch(() => null);
+        const st = await apiGetOrderStatus(server.provider, res.orderId).catch(() => null);
         if (st?.code != null && st.code !== "") {
           otp = String(st.code);
           break;
@@ -415,175 +515,307 @@ export default function NokosShopPage() {
           phone = String(raw.phone || raw.phone_number || raw.number);
         }
       }
-
+      if (!buyRunRef.current) return; // customer menutup layar saat menunggu — jangan paksa muncul lagi
       setResultOtp(otp);
       if (phone) setResultPhone(phone);
       setPayPhase(otp ? "success" : "error");
       if (otp) {
+        // Simpan ke riwayat: otp tersimpan -> status berubah & tidak bisa di-cancel.
+        await apiShopRecordOtp(session.user.id, res.orderId, otp).catch(() => {});
         setPayMessage("OTP masuk! Salin kode dan selesaikan verifikasi akun kamu.");
-        pushHistory({
-          orderId: order.orderId,
-          server: server.label,
-          country: countries.find((c) => String(c.id) === String(selectedCountryId))?.name || "",
-          service: selectedService.name || "",
-          price: sellPrice,
-          status: "Berhasil",
-          otp,
-        });
       } else {
-        setPayError(
-          `Order ${order.orderId} dibuat tapi OTP belum masuk. Cek lagi sebentar lewat tombol "Cek OTP".`
-        );
+        setPayError(`Order ${res.orderId} dibuat tapi OTP belum masuk. Nomor aktif ±20 menit — tekan \"Cek OTP Lagi\" atau gunakan tombol \"Periksa OTP\" di Riwayat.`);
       }
+      if (session) await refreshWalletOrders(session.user.id);
     } catch (err: any) {
       setPayPhase("error");
       setPayError(err?.message || "Terjadi kesalahan saat proses pembelian.");
     }
   };
 
-  const handleCheckPaymentAgain = async () => {
-    if (!payReference) return;
-    setPayMessage("Mengecek pembayaran...");
-    const st = await apiCheckPayment(payReference).catch(() => null);
-    if (st?.ok && st.paid) {
-      setPayMessage("Pembayaran lunas. Silakan klik 'Pesan Nomor Sekarang'.");
-      setPayPhase("ordering");
-    } else {
-      setPayError("Belum terdeteksi lunas. Pastikan QR sudah dibayar, lalu coba lagi.");
-    }
-  };
-
-  const handleRetryOrder = async () => {
-    if (!selectedService || selectedCountryId == null || !payReference) return;
-    setPayError(null);
-
-    // Jangan pesan nomor ke provider sebelum pembayaran benar-benar lunas
-    // (saldo owner di provider tidak boleh kepotong untuk order yang belum dibayar).
-    setPayMessage("Memverifikasi pembayaran dulu...");
-    const check = await apiCheckPayment(payReference).catch(() => null);
-    if (!check?.ok || !check.paid) {
-      setPayPhase("error");
-      setPayError("Pembayaran belum terdeteksi lunas. Pastikan QR sudah dibayar, lalu coba lagi.");
-      return;
-    }
-
-    setPayPhase("ordering");
-    setPayMessage("Memesan nomor dari server provider...");
-    try {
-      const order = await apiCreateNumberOrder({
-        provider: server.provider,
-        country: selectedCountryId,
-        service: selectedService.service ?? selectedService.id!,
-        providerPrice: selectedService.price,
-      });
-      if (!order.ok || !order.orderId) {
-        setPayPhase("error");
-        setPayError(order.error || "Server provider gagal memesan nomor.");
-        return;
-      }
-      setResultOrderId(order.orderId);
-      pushHistory({
-        orderId: order.orderId,
-        server: server.label,
-        country: countries.find((c) => String(c.id) === String(selectedCountryId))?.name || "",
-        service: selectedService.name || "",
-        price: sellPrice,
-        status: "Menunggu OTP",
-      });
-      setPayPhase("waitingOtp");
-      setPayMessage("Nomor dipesan. Menunggu OTP masuk...");
-    } catch (err: any) {
-      setPayPhase("error");
-      setPayError(err?.message || "Gagal memesan nomor.");
-    }
-  };
-
   const handleCheckOtp = async () => {
-    if (!resultOrderId) return;
+    if (!resultOrderId || !session) return;
     setPayMessage("Mengecek OTP...");
-    const st = await apiGetOrderStatus(server.provider, resultOrderId).catch(() => null);
+    const st = await apiGetOrderStatus(server?.provider || "kirimkode", resultOrderId).catch(() => null);
     if (st?.code != null && st.code !== "") {
-      setResultOtp(String(st.code));
+      const otp = String(st.code);
+      setResultOtp(otp);
       setPayPhase("success");
       setPayMessage("OTP masuk! Salin kode dan selesaikan verifikasi akun kamu.");
+      await apiShopRecordOtp(session.user.id, resultOrderId, otp).catch(() => {});
+      if (session) await refreshWalletOrders(session.user.id);
     } else {
       setPayError("OTP belum masuk. Nomor aktif ±20 menit; coba lagi beberapa saat.");
     }
   };
 
-  const handleCopy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* clipboard tidak tersedia */
-    }
-  };
-
   /* =====================================================================
-   * ALUR DEPOSIT (uang masuk ke akun owner via QR Paymentku)
+   * DEPOSIT (isi saldo via QR Paymentku, masuk otomatis)
    * ===================================================================== */
-  const [depositAmount, setDepositAmount] = useState(10000);
-  const [depositBusy, setDepositBusy] = useState(false);
-  const [depositDone, setDepositDone] = useState(false);
-  const [depositRef, setDepositRef] = useState<string | null>(null);
-
   const startDeposit = async () => {
+    if (!session) return;
     setDepositBusy(true);
-    setDepositDone(false);
-    setDepositRef(null);
+    setDepositError(null);
+    setDepositStatus("Membuat invoice pembayaran QR...");
     try {
-      const inv = await apiCreatePayment({
-        amount: depositAmount,
-        description: "Deposit saldo KAKO NOKOS",
-      });
+      const inv = await apiShopDepositCreate(session.user.id, depositAmount);
       if (!inv.ok || !inv.payUrl || !inv.referenceId) {
-        alert(inv.error || "Gagal membuat QR deposit.");
+        setDepositError(inv.error || "Gagal membuat QR deposit.");
+        setDepositStatus(null);
         return;
       }
       setDepositRef(inv.referenceId);
       try {
         window.open(inv.payUrl, "_blank", "noopener");
       } catch {
-        /* ignore */
+        /* popup blocked */
       }
-      alert(
-        "Kode QR deposit sudah dibuka di tab baru. Setelah bayar, konfirmasi ke admin (uang masuk ke akun owner dan saldo kamu diisi manual)."
+      setDepositStatus(
+        `QR deposit dibuka di tab baru. Bayar Rp ${formatRupiah(inv.amount || depositAmount)} lalu tunggu — saldo masuk otomatis (Ref: ${inv.referenceId}).`
       );
+
+      depositPolling.current = true;
+      for (let i = 0; i < 30 && depositPolling.current; i++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const st = await apiShopDepositPoll(inv.referenceId).catch(() => null);
+        if (!st) continue;
+        if (st.paid) {
+          setWalletBalance(st.balance ?? 0);
+          setDepositStatus("Pembayaran diterima — saldo sudah masuk ke akun kamu. 🎉");
+          depositPolling.current = false;
+          break;
+        }
+      }
+      if (depositPolling.current) {
+        depositPolling.current = false;
+        setDepositStatus("Waktu cek habis. Kalau sudah membayar, tekan 'Cek Pembayaran Lagi'.");
+      }
     } catch (err: any) {
-      alert(err?.message || "Gagal membuat QR deposit.");
+      depositPolling.current = false;
+      setDepositError(err?.message || "Gagal membuat QR deposit.");
+      setDepositStatus(null);
     } finally {
       setDepositBusy(false);
     }
   };
 
-  const handleDeposit = () => {
-    setDepositOpen(true);
+  const checkDepositAgain = async () => {
+    if (!depositRef) return;
+    setDepositBusy(true);
+    setDepositError(null);
+    setDepositStatus("Mengecek pembayaran...");
+    const st = await apiShopDepositPoll(depositRef).catch(() => null);
+    if (st?.paid) {
+      setWalletBalance(st.balance ?? 0);
+      setDepositStatus("Pembayaran diterima — saldo sudah masuk ke akun kamu. 🎉");
+    } else {
+      setDepositStatus("Belum terdeteksi lunas. Pastikan QR sudah dibayar, lalu coba lagi.");
+    }
+    setDepositBusy(false);
   };
 
-  const statusClass = (status: string) => {
-    if (status === "Berhasil") return "bg-emerald-500/15 text-emerald-400";
-    if (status === "Menunggu OTP" || status === "Pending") return "bg-amber-500/15 text-amber-400";
-    return "bg-red-500/15 text-red-400";
+  useEffect(() => {
+    return () => {
+      depositPolling.current = false;
+    };
+  }, []);
+
+  /* =====================================================================
+   * AUTO-POLL OTP order aktif (biar riwayat selalu segar)
+   * ===================================================================== */
+  useEffect(() => {
+    if (!session) return;
+    let stopped = false;
+    const tick = async () => {
+      const active = ordersRef.current.filter(
+        (o) => o.status === "ordered" && !o.otp && Date.now() - o.createdAt < 30 * 60 * 1000
+      );
+      if (active.length === 0) return;
+      let changed = false;
+      for (const o of active) {
+        try {
+          const r = await apiShopCheckMyOrder(session.user.id, o.orderId);
+          if (r.status === "otp" && r.otp) changed = true;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (changed && !stopped) {
+        await refreshWalletOrders(session.user.id);
+      }
+    };
+    const id = setInterval(tick, 20000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
+
+  /* =====================================================================
+   * CANCEL / REFUND (customer) — minimal 2 menit & tidak bisa jika OTP masuk
+   * ===================================================================== */
+  const requestCancel = async () => {
+    if (!session || !cancelTarget) return;
+    setCancelBusy(true);
+    setCancelError(null);
+    try {
+      const res = await apiShopCancelOrder(session.user.id, cancelTarget.orderId);
+      if (res.ok) {
+        setCancelTarget(null);
+        await refreshWalletOrders(session.user.id);
+        showNotice(`Order dibatalkan — Rp ${formatRupiah(res.refunded || 0)} dikembalikan ke saldo kamu.`);
+      } else {
+        setCancelError(res.error || "Gagal membatalkan order.");
+        if (res.otp) {
+          await refreshWalletOrders(session.user.id);
+        }
+      }
+    } catch (err: any) {
+      setCancelError(err?.message || "Terjadi kesalahan. Coba lagi.");
+    } finally {
+      setCancelBusy(false);
+    }
   };
 
-  const copyKeyHint = (provider: ProviderId) => {
-    if (provider === "kirimkode") return "NOKOS_KIRIMKODE_API_KEY";
-    if (provider === "ditznesia") return "NOKOS_DITZNESIA_API_KEY";
-    return "NOKOS_DITZNESIA_API2_KEY";
+  const checkSingleOrder = async (order: ShopOrder) => {
+    if (!session) return;
+    const r = await apiShopCheckMyOrder(session.user.id, order.orderId).catch(() => null);
+    if (r?.status === "otp" && r.otp) {
+      await refreshWalletOrders(session.user.id);
+      showNotice("OTP sudah masuk — lihat di Riwayat.");
+    } else if (r?.status === "otp") {
+      await refreshWalletOrders(session.user.id);
+    } else {
+      showNotice("OTP belum masuk. Coba lagi beberapa menit kemudian.");
+    }
   };
+
+  /* =====================================================================
+   * PANEL ADMIN (owner/cs)
+   * ===================================================================== */
+  const isAdmin = session && (session.user.role === "owner" || session.user.role === "cs");
+  const isOwner = session?.user.role === "owner";
+
+  const loadAdminData = async () => {
+    if (!session) return;
+    setAdminBusy(true);
+    setAdminMsg(null);
+    try {
+      const [st, us, or] = await Promise.all([
+        apiAdminStats(session.user.id),
+        apiAdminListUsers(session.user.id),
+        apiAdminOrders(session.user.id),
+      ]);
+      if (st.ok && st.stats) setAdminStatsData(st.stats);
+      if (us.ok && us.users) setAdminUsers(us.users);
+      if (or.ok && or.orders) setAdminOrdersData(or.orders);
+      if (!st.ok) setAdminMsg(st.error || "Gagal memuat data admin.");
+    } catch (err: any) {
+      setAdminMsg(err?.message || "Gagal memuat data admin.");
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const openAdmin = () => {
+    setAdminOpen(true);
+    setAdminTab("ringkasan");
+    loadAdminData();
+  };
+
+  /* ---------- aksi admin ---------- */
+  const adminAdjust = async (user: AdminUser, delta: number) => {
+    if (!session) return;
+    setAdminBusy(true);
+    setAdminMsg(null);
+    const res = await apiAdminAdjustBalance(session.user.id, user.id, delta).catch(() => null);
+    if (res?.ok) {
+      showNotice(`Saldo ${user.fullName || user.username} diubah: Rp ${formatRupiah(res.balance || 0)}`);
+      await loadAdminData();
+    } else {
+      setAdminMsg(res?.error || "Gagal mengubah saldo.");
+      setAdminBusy(false);
+    }
+  };
+
+  const adminRefundOrder = async (order: AdminOrder) => {
+    if (!session) return;
+    setAdminBusy(true);
+    setAdminMsg(null);
+    const res = await apiAdminRefundOrder(session.user.id, order.id).catch(() => null);
+    if (res?.ok) {
+      showNotice(`Order ${order.orderId} direfund — Rp ${formatRupiah(res.refunded || 0)} kembali ke customer.`);
+      await loadAdminData();
+    } else {
+      setAdminMsg(res?.error || "Gagal refund order.");
+      setAdminBusy(false);
+    }
+  };
+
+  const adminCreateStaff = async (input: { username: string; password: string; fullName: string }) => {
+    if (!session || !isOwner) return;
+    setAdminBusy(true);
+    setAdminMsg(null);
+    const res = await apiShopCreateStaff({
+      actorId: session.user.id,
+      username: input.username,
+      password: input.password,
+      fullName: input.fullName,
+    }).catch(() => null);
+    if (res?.ok) {
+      showNotice(`Akun CS ${input.username} dibuat.`);
+      await loadAdminData();
+    } else {
+      setAdminMsg(res?.error || "Gagal membuat akun CS.");
+      setAdminBusy(false);
+    }
+  };
+
+  const adminDeleteStaff = async (userId: string) => {
+    if (!session || !isOwner) return;
+    setAdminBusy(true);
+    setAdminMsg(null);
+    const res = await apiShopDeleteStaff(session.user.id, userId).catch(() => null);
+    if (res?.ok) {
+      showNotice("Akun CS dihapus.");
+      await loadAdminData();
+    } else {
+      setAdminMsg(res?.error || "Gagal menghapus akun CS.");
+      setAdminBusy(false);
+    }
+  };
+
+  const adminToggleServer = async (serverKey: string, enabled: boolean) => {
+    if (!session || !isOwner) return;
+    setAdminBusy(true);
+    setAdminMsg(null);
+    const res = await apiShopSetServerEnabled(session.user.id, serverKey, enabled).catch(() => null);
+    if (res?.ok) {
+      setServerVisibility(res.servers || {});
+      showNotice(`${enabled ? "Server dinyalakan" : "Server dimatikan"}: ${serverKey}`);
+    } else {
+      setAdminMsg(res?.error || "Gagal mengubah server.");
+    }
+    setAdminBusy(false);
+  };
+
+  /* =====================================================================
+   * GATE: belum login -> landing page
+   * ===================================================================== */
+  if (!session) {
+    return <LandingPage onAuthed={applySession} />;
+  }
+
+  const statusCls = (status: string) => statusMeta(status).cls;
+  const statusLabel = (status: string) => statusMeta(status).label;
+  const role = roleMeta[session.user.role] || roleMeta.customer;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white selection:bg-red-500/30">
       {/* ================= HEADER ================= */}
       <header className="border-b border-white/10 bg-[#0b0b0f]/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-3">
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="lg:hidden w-10 h-10 rounded-xl flex items-center justify-center border border-white/10"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/30 flex-shrink-0">
               <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -591,63 +823,44 @@ export default function NokosShopPage() {
               </svg>
             </div>
             <div className="min-w-0">
-              <p className="text-[15px] font-extrabold tracking-tight truncate" style={{ color: WHITE }}>
-                KAKO NOKOS
-              </p>
+              <p className="text-[15px] font-extrabold tracking-tight truncate">KAKO NOKOS</p>
               <p className="text-[11px] text-zinc-400 tracking-wide truncate">Toko Nomor Online</p>
             </div>
+            {session.user.role !== "customer" && (
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${role.cls} ml-1`}>{role.label}</span>
+            )}
           </div>
 
-          <nav className="hidden lg:flex items-center gap-6 text-sm">
-            <a href="#beli" className="flex items-center gap-1.5 text-white font-medium">
-              <ShoppingCart className="w-4 h-4" /> Beli Nomor
-            </a>
-            <button onClick={() => { setDepositAmount(10000); handleDeposit(); }} className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors">
-              <Wallet className="w-4 h-4" /> Deposit
-            </button>
-            <a href="#cara" className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors">
-              <ChevronDown className="w-4 h-4" /> Cara Kerja
-            </a>
-            <a href="#riwayat" className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors">
-              <History className="w-4 h-4" /> Riwayat
-            </a>
-          </nav>
-
-          <button
-            onClick={handleDeposit}
-            className="px-4 py-2 rounded-xl text-sm font-semibold shadow-lg transition-all hover:brightness-110 active:scale-[0.98] flex items-center gap-2 flex-shrink-0"
-            style={{ backgroundColor: ACCENT, color: DARK }}
-          >
-            <Wallet className="w-4 h-4" />
-            <span className="hidden sm:inline">Deposit</span>
-          </button>
-        </div>
-
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="lg:hidden border-t border-white/10"
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {isAdmin && (
+              <button
+                onClick={openAdmin}
+                className="px-3 py-2 rounded-xl text-sm font-semibold border border-white/15 text-zinc-200 hover:bg-white/5 flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" /> <span className="hidden sm:inline">Panel Admin</span>
+              </button>
+            )}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5">
+              <Wallet className="w-4 h-4" style={{ color: ACCENT }} />
+              <span className="text-sm font-bold">Rp {formatRupiah(walletBalance ?? 0)}</span>
+            </div>
+            <button
+              onClick={() => setDepositOpen(true)}
+              className="px-3.5 py-2 rounded-xl text-sm font-semibold shadow-lg transition-all hover:brightness-110 active:scale-[0.98] flex items-center gap-2"
+              style={{ backgroundColor: ACCENT, color: DARK }}
             >
-              <div className="flex flex-col gap-1 p-4">
-                <a href="#beli" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white bg-white/5">
-                  <ShoppingCart className="w-4 h-4" /> Beli Nomor
-                </a>
-                <button onClick={() => { setMobileMenuOpen(false); handleDeposit(); }} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-300 hover:bg-white/5 text-left">
-                  <Wallet className="w-4 h-4" /> Deposit
-                </button>
-                <a href="#cara" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-300 hover:bg-white/5">
-                  <ChevronDown className="w-4 h-4" /> Cara Kerja
-                </a>
-                <a href="#riwayat" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-300 hover:bg-white/5">
-                  <History className="w-4 h-4" /> Riwayat
-                </a>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <Wallet className="w-4 h-4" />
+              <span className="hidden sm:inline">Isi Saldo</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              title="Keluar"
+              className="w-9 h-9 rounded-xl flex items-center justify-center border border-white/10 text-zinc-400 hover:text-white transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-5 py-6">
@@ -659,40 +872,41 @@ export default function NokosShopPage() {
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
-              <p className="text-[13px] uppercase tracking-widest text-red-500 font-semibold">Platform Nomor Virtual</p>
+              <p className="text-[13px] uppercase tracking-widest text-red-500 font-semibold">
+                Halo, {session.user.fullName}
+              </p>
               <h1 className="text-3xl md:text-4xl font-extrabold mt-2 leading-tight">
                 Verifikasi Akun <span style={{ color: ACCENT }}>Tanpa Ribet</span>
               </h1>
               <p className="text-zinc-400 text-sm mt-3 max-w-xl">
-                Nomor virtual untuk verifikasi WhatsApp, Telegram, Facebook, dan lainnya. Server,
-                negara, layanan, stok, dan harga ditampilkan langsung dari API provider — bukan
-                pajangan.
+                Nomor virtual untuk verifikasi WhatsApp, Telegram, Facebook, dan lainnya. Isi saldo sekali —
+                setiap pembelian dipotong otomatis dari saldo kamu.
               </p>
               <div className="flex flex-wrap gap-3 mt-5">
                 <a href="#beli" className="px-5 py-3 rounded-xl text-black text-sm font-bold shadow-lg flex items-center gap-2" style={{ backgroundColor: ACCENT }}>
                   Beli Nomor <ArrowRightCircle className="w-4 h-4" />
                 </a>
-                <button onClick={handleDeposit} className="px-5 py-3 rounded-xl text-white text-sm font-medium border border-white/20 flex items-center gap-2">
-                  <Wallet className="w-4 h-4" /> Deposit
+                <button onClick={() => setDepositOpen(true)} className="px-5 py-3 rounded-xl text-white text-sm font-medium border border-white/20 flex items-center gap-2">
+                  <Wallet className="w-4 h-4" /> Isi Saldo
                 </button>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <StatCard icon={<Globe className="w-5 h-5" />} number={totalCountries == null ? "-" : String(totalCountries)} label="Negara (semua server)" />
-              <StatCard icon={<Send className="w-5 h-5" />} number={String(services.length || "-")} label="Layanan (live)" />
-              <StatCard icon={<Users className="w-5 h-5" />} number="QRIS" label="Pembayaran" />
-              <StatCard icon={<ShieldCheck className="w-5 h-5" />} number="Final" label="Harga di layar" />
+              <StatCard icon={<ShoppingCart className="w-5 h-5" />} number={String(services.length || "-")} label="Layanan tersedia" />
+              <StatCard icon={<Wallet className="w-5 h-5" />} number={`Rp ${formatRupiah(walletBalance ?? 0)}`} label="Saldo kamu" />
+              <StatCard icon={<ShieldCheck className="w-5 h-5" />} number="Aman" label="Gagal = saldo balik" />
             </div>
           </div>
         </motion.div>
 
         {/* ================= KARTU INFO ALUR ================= */}
-        <div id="cara" className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 scroll-mt-20">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
           {[
-            { icon: <Zap className="w-5 h-5 text-red-500" />, title: "Server Pilihan", desc: "KirimKode, Ditznesia, dan Ditznesia API v2. Data tiap server diambil live dari API-nya masing-masing." },
-            { icon: <ShieldCheck className="w-5 h-5 text-red-500" />, title: "Bayar QR, Nomor Masuk", desc: "Pembayaran via QR Paymentku. Setelah lunas, nomor langsung dipesan dari server." },
-            { icon: <PhoneIncoming className="w-5 h-5 text-red-500" />, title: "OTP Masuk Otomatis", desc: "Kode OTP dicek otomatis sampai masuk dan ditampilkan di halaman ini." },
+            { icon: <Zap className="w-5 h-5 text-red-500" />, title: "1. Isi Saldo", desc: "Bayar QR sekali, saldo masuk otomatis ke akun kamu. Tidak ada biaya tersembunyi." },
+            { icon: <ShieldCheck className="w-5 h-5 text-red-500" />, title: "2. Pilih & Beli", desc: "Pilih server, negara, dan layanan. Harga dipotong dari saldo — harga yang tampil itulah yang dibayar." },
+            { icon: <PhoneIncoming className="w-5 h-5 text-red-500" />, title: "3. OTP Masuk", desc: "Kode OTP dicek otomatis sampai masuk. Kalau order gagal, saldo dikembalikan otomatis." },
           ].map((item) => (
             <div key={item.title} className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 flex gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(225,6,0,0.18)" }}>
@@ -706,6 +920,18 @@ export default function NokosShopPage() {
           ))}
         </div>
 
+        {/* ================= ATURAN CANCEL/REFUND ================= */}
+        <div className="mt-6 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-amber-500/10">
+            <Timer className="w-5 h-5 text-amber-400" />
+          </div>
+          <div className="text-[13px] text-zinc-300 leading-relaxed">
+            <p className="font-semibold text-white text-sm mb-1">Aturan Batalkan & Refund</p>
+            Order bisa dibatalkan/direfund <b>minimal 2 menit</b> setelah pembelian, dan <b>tidak bisa</b> jika
+            kode OTP sudah masuk (nomor sudah terpakai). Refund dikembalikan otomatis ke saldo kamu.
+          </div>
+        </div>
+
         {/* ================= PILIH SERVER ================= */}
         <section id="beli" className="mt-8 scroll-mt-20">
           <div className="flex items-center justify-between mb-4">
@@ -715,275 +941,470 @@ export default function NokosShopPage() {
             </h2>
             <span className="text-[13px] text-zinc-400">Data live dari API provider</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {SERVER_LIST.map((s) => {
-              const active = selectedServerId === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setSelectedServerId(s.id)}
-                  className={`rounded-2xl border text-left p-4 transition-all ${
-                    active
-                      ? "border-red-600 bg-red-600/10 shadow-lg shadow-red-600/15"
-                      : "border-white/10 bg-zinc-900/40 hover:border-white/20"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2 gap-2">
-                    <span className="font-semibold text-white">{s.label}</span>
-                    {s.badge && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0" style={{ backgroundColor: ACCENT, color: DARK }}>
-                        {s.badge}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[12px] text-zinc-400 mb-2">{s.providerLabel}</p>
-                  <p className="text-[12px] text-zinc-400 leading-relaxed">{s.description}</p>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ================= DATA SERVER ================= */}
-        <section className="mt-6">
-          {dataError ? (
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
-              <div className="flex items-start gap-3">
-                <XCircle className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-red-300">Server {server.label} belum terhubung</p>
-                  <p className="text-[13px] text-red-200/80 mt-1 leading-relaxed">{dataError}</p>
-                  <p className="text-[13px] text-zinc-300 mt-3">
-                    Kemungkinan penyebab: (1) backend toko belum aktif, atau (2) pemilik toko belum mengisi
-                    kunci API di <b>Settings → Environment</b> dengan nama{" "}
-                    <code className="text-red-300 font-mono bg-white/5 px-1.5 py-0.5 rounded">{copyKeyHint(server.provider)}</code>{" "}
-                    (kunci dari dashboard {server.providerLabel}). Hubungi admin untuk mengaktifkan server ini.
-                  </p>
-                  <button
-                    onClick={() => setReloadToken((v) => v + 1)}
-                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border border-white/15 hover:bg-white/5"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Muat Ulang Data
-                  </button>
-                </div>
-              </div>
+          {visibleServers.length === 0 ? (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-sm text-amber-200">
+              Semua server sedang nonaktif oleh Owner. Hubungi admin untuk menyalakan server.
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Negara */}
-              <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
-                <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
-                  <Globe className="w-4 h-4 text-red-500" /> Negara ({server.providerLabel})
-                </h3>
-                <p className="text-[12px] text-zinc-500 mb-3">
-                  {loadingData
-                    ? "memuat..."
-                    : countryQuery.trim()
-                    ? `${visibleCountries.length} dari ${countries.length} negara`
-                    : `${countries.length} negara`}
-                </p>
-                {countries.length === 0 ? (
-                  <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Memuat negara...
-                  </div>
-                ) : (
-                  <>
-                    <div className="relative mb-3">
-                      <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        value={countryQuery}
-                        onChange={(e) => setCountryQuery(e.target.value)}
-                        placeholder="Cari negara… (mis. indonesia, japan)"
-                        className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
-                      />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {visibleServers.map((s) => {
+                const active = server?.id === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setSelectedServerId(s.id)}
+                    className={`rounded-2xl border text-left p-4 transition-all ${
+                      active
+                        ? "border-red-600 bg-red-600/10 shadow-lg shadow-red-600/15"
+                        : "border-white/10 bg-zinc-900/40 hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2 gap-2">
+                      <span className="font-semibold text-white">{s.label}</span>
+                      {s.badge && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0" style={{ backgroundColor: ACCENT, color: DARK }}>
+                          {s.badge}
+                        </span>
+                      )}
                     </div>
-                    {visibleCountries.length === 0 ? (
-                      <div className="text-[13px] text-zinc-500 py-6 text-center">
-                        Tidak ada negara yang cocok dengan “{countryQuery.trim()}”.
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
-                        {visibleCountries.map((c) => {
-                          const key = String(c.id ?? c.name);
-                          const active = String(selectedCountryId) === key;
-                          return (
-                            <button
-                              key={key}
-                              onClick={() => setSelectedCountryId(c.id)}
-                              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
-                                active ? "text-white shadow-md" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                              }`}
-                              style={active ? { backgroundColor: RED } : {}}
-                            >
-                              {c.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Layanan */}
-              <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
-                <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
-                  <ShoppingCart className="w-4 h-4 text-red-500" /> Layanan
-                </h3>
-                <p className="text-[12px] text-zinc-500 mb-3">
-                  {loadingData
-                    ? "memuat..."
-                    : serviceQuery.trim()
-                    ? `${visibleServices.length} dari ${services.length} layanan`
-                    : `${services.length} layanan tersedia`}
-                </p>
-                {services.length === 0 ? (
-                  <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Memuat layanan...
-                  </div>
-                ) : (
-                  <>
-                    <div className="relative mb-3">
-                      <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        value={serviceQuery}
-                        onChange={(e) => setServiceQuery(e.target.value)}
-                        placeholder="Cari layanan… (mis. whatsapp, telegram, otp)"
-                        className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
-                      />
-                    </div>
-                    {visibleServices.length === 0 ? (
-                      <div className="text-[13px] text-zinc-500 py-6 text-center">
-                        Tidak ada layanan yang cocok dengan “{serviceQuery.trim()}”.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto pr-1">
-                        {visibleServices.map((s) => {
-                          const key = String(s.service ?? s.id);
-                          const active = String(selectedServiceId) === key;
-                          const isOut = s.stock === 0;
-                          return (
-                            <button
-                              key={key}
-                              disabled={isOut}
-                              onClick={() => setSelectedServiceId(key)}
-                              className={`rounded-xl px-3 py-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                active ? "bg-white/10 ring-1 ring-white/30" : "bg-zinc-800/80 hover:bg-zinc-700/80"
-                              }`}
-                            >
-                              <p className="text-[13px] font-semibold text-white truncate">{s.name || key}</p>
-                              <p className="text-[11px] mt-0.5">
-                                <span style={{ color: ACCENT }}>Rp {formatRupiah(computeSellPrice(s.price))}</span>
-                                <span className="text-zinc-500"> • stok {isOut ? "habis" : s.stock}</span>
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                    <p className="text-[12px] text-zinc-400 mb-2">{s.providerLabel}</p>
+                    <p className="text-[12px] text-zinc-400 leading-relaxed">{s.description}</p>
+                  </button>
+                );
+              })}
             </div>
           )}
         </section>
 
+        {/* ================= DATA SERVER ================= */}
+        {server && (
+          <section className="mt-6">
+            {dataError ? (
+              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
+                <div className="flex items-start gap-3">
+                  <XCircle className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-red-300">Server {server.label} belum terhubung</p>
+                    <p className="text-[13px] text-red-200/80 mt-1 leading-relaxed">{dataError}</p>
+                    <button
+                      onClick={() => setReloadToken((v) => v + 1)}
+                      className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border border-white/15 hover:bg-white/5"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Muat Ulang Data
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Negara */}
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
+                    <Globe className="w-4 h-4 text-red-500" /> Negara ({server.providerLabel})
+                  </h3>
+                  <p className="text-[12px] text-zinc-500 mb-3">
+                    {loadingData
+                      ? "memuat..."
+                      : countryQuery.trim()
+                      ? `${visibleCountries.length} dari ${countries.length} negara`
+                      : `${countries.length} negara`}
+                  </p>
+                  {countries.length === 0 ? (
+                    <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Memuat negara...
+                    </div>
+                  ) : (
+                    <>
+                      <div className="relative mb-3">
+                        <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          value={countryQuery}
+                          onChange={(e) => setCountryQuery(e.target.value)}
+                          placeholder="Cari negara… (mis. indonesia, japan)"
+                          className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+                        />
+                      </div>
+                      {visibleCountries.length === 0 ? (
+                        <div className="text-[13px] text-zinc-500 py-6 text-center">
+                          Tidak ada negara yang cocok dengan “{countryQuery.trim()}”.
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
+                          {visibleCountries.map((c) => {
+                            const key = String(c.id ?? c.name);
+                            const active = String(selectedCountryId) === key;
+                            return (
+                              <button
+                                key={key}
+                                onClick={() => setSelectedCountryId(c.id)}
+                                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
+                                  active ? "text-white shadow-md" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                                }`}
+                                style={active ? { backgroundColor: RED } : {}}
+                              >
+                                {c.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Layanan */}
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
+                    <ShoppingCart className="w-4 h-4 text-red-500" /> Layanan
+                  </h3>
+                  <p className="text-[12px] text-zinc-500 mb-3">
+                    {loadingData
+                      ? "memuat..."
+                      : serviceQuery.trim()
+                      ? `${visibleServices.length} dari ${services.length} layanan`
+                      : `${services.length} layanan tersedia`}
+                  </p>
+                  {services.length === 0 ? (
+                    <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Memuat layanan...
+                    </div>
+                  ) : (
+                    <>
+                      <div className="relative mb-3">
+                        <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          value={serviceQuery}
+                          onChange={(e) => setServiceQuery(e.target.value)}
+                          placeholder="Cari layanan… (mis. whatsapp, telegram, otp)"
+                          className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+                        />
+                      </div>
+                      {visibleServices.length === 0 ? (
+                        <div className="text-[13px] text-zinc-500 py-6 text-center">
+                          Tidak ada layanan yang cocok dengan “{serviceQuery.trim()}”.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto pr-1">
+                          {visibleServices.map((s) => {
+                            const key = String(s.service ?? s.id);
+                            const active = String(selectedServiceId) === key;
+                            const isOut = s.stock === 0;
+                            return (
+                              <button
+                                key={key}
+                                disabled={isOut}
+                                onClick={() => setSelectedServiceId(key)}
+                                className={`rounded-xl px-3 py-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                  active ? "bg-white/10 ring-1 ring-white/30" : "bg-zinc-800/80 hover:bg-zinc-700/80"
+                                }`}
+                              >
+                                <p className="text-[13px] font-semibold text-white truncate">{s.name || key}</p>
+                                <p className="text-[11px] mt-0.5">
+                                  <span style={{ color: ACCENT }}>Rp {formatRupiah(computeSellPrice(s.price))}</span>
+                                  <span className="text-zinc-500"> • stok {isOut ? "habis" : s.stock}</span>
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* ================= RINGKASAN + BELI ================= */}
-        <motion.div
-          className="mt-8 rounded-2xl overflow-hidden border shadow-xl shadow-red-600/20"
-          style={{ backgroundColor: DARK, borderColor: RED }}
-        >
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-white/10">
-            <div className="p-5 text-center">
-              <p className="text-[11px] uppercase tracking-widest text-zinc-400">Server</p>
-              <p className="text-lg font-bold text-white mt-1">{server.label}</p>
-              <p className="text-[12px] text-zinc-400">{server.providerLabel}</p>
+        {server && (
+          <motion.div
+            className="mt-8 rounded-2xl overflow-hidden border shadow-xl shadow-red-600/20"
+            style={{ backgroundColor: DARK, borderColor: RED }}
+          >
+            <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-white/10">
+              <div className="p-5 text-center">
+                <p className="text-[11px] uppercase tracking-widest text-zinc-400">Server</p>
+                <p className="text-lg font-bold text-white mt-1">{server.label}</p>
+                <p className="text-[12px] text-zinc-400">{server.providerLabel}</p>
+              </div>
+              <div className="p-5 text-center">
+                <p className="text-[11px] uppercase tracking-widest text-zinc-400">Negara</p>
+                <p className="text-lg font-bold text-white mt-1 truncate">
+                  {countries.find((c) => String(c.id) === String(selectedCountryId))?.name || "-"}
+                </p>
+              </div>
+              <div className="p-5 text-center">
+                <p className="text-[11px] uppercase tracking-widest text-zinc-400">Layanan</p>
+                <p className="text-lg font-bold text-white mt-1 truncate">{selectedService?.name || "-"}</p>
+              </div>
+              <div className="p-5 text-center bg-red-600/10">
+                <p className="text-[11px] uppercase tracking-widest text-zinc-400">Total Bayar</p>
+                <p className="text-2xl font-extrabold mt-1">Rp {formatRupiah(sellPrice)}</p>
+                <p className="text-[12px] text-zinc-400 mt-1">jumlah yang kamu bayar</p>
+              </div>
             </div>
-            <div className="p-5 text-center">
-              <p className="text-[11px] uppercase tracking-widest text-zinc-400">Negara</p>
-              <p className="text-lg font-bold text-white mt-1 truncate">
-                {countries.find((c) => String(c.id) === String(selectedCountryId))?.name || "-"}
+
+            <div className="px-5 pb-5">
+              <button
+                onClick={handleBuy}
+                disabled={!selectedService || loadingData}
+                className={`w-full py-4 rounded-xl text-base font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  !selectedService ? "bg-zinc-700 text-zinc-500" : "bg-white text-black hover:brightness-95 active:scale-[0.99]"
+                }`}
+              >
+                <QrCode className="w-5 h-5" /> Beli — Potong Saldo Rp {formatRupiah(sellPrice)}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <p className="text-[12px] text-zinc-400 text-center mt-2">
+                Saldo kamu: <b style={{ color: ACCENT }}>Rp {formatRupiah(walletBalance ?? 0)}</b> — kalau kurang, isi saldo dulu. Gagal = saldo kembali otomatis.
               </p>
             </div>
-            <div className="p-5 text-center">
-              <p className="text-[11px] uppercase tracking-widest text-zinc-400">Layanan</p>
-              <p className="text-lg font-bold text-white mt-1 truncate">{selectedService?.name || "-"}</p>
-            </div>
-            <div className="p-5 text-center bg-red-600/10">
-              <p className="text-[11px] uppercase tracking-widest text-zinc-400">Total Bayar</p>
-              <p className="text-2xl font-extrabold mt-1">Rp {formatRupiah(sellPrice)}</p>
-              <p className="text-[12px] text-zinc-400 mt-1">jumlah yang kamu bayar</p>
-            </div>
-          </div>
-
-          <div className="px-5 pb-5">
-            <button
-              onClick={handleBuy}
-              disabled={!selectedService || loadingData || payPhase === "creating"}
-              className={`w-full py-4 rounded-xl text-base font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                !selectedService
-                  ? "bg-zinc-700 text-zinc-500"
-                  : "bg-white text-black hover:brightness-95 active:scale-[0.99]"
-              }`}
-            >
-              {payPhase === "creating" ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" /> Membuat invoice...
-                </>
-              ) : (
-                <>
-                  <QrCode className="w-5 h-5" /> Beli & Bayar QR
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-            <p className="text-[12px] text-zinc-400 text-center mt-2">
-              Bayar via QR Paymentku → setelah lunas nomor langsung dipesan dari server {server.providerLabel}.
-            </p>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
         {/* ================= RIWAYAT ================= */}
         <section id="riwayat" className="mt-10 scroll-mt-20">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <History className="w-5 h-5 text-red-500" /> Transaksi Sesi Ini
+              <History className="w-5 h-5 text-red-500" /> Riwayat Transaksi
             </h2>
+            {ordersLoading && <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />}
           </div>
 
-          {history.length === 0 ? (
+          {orders.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40 p-8 text-center">
               <History className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
-              <p className="text-sm text-zinc-400">Belum ada transaksi di sesi ini.</p>
-              <p className="text-[12px] text-zinc-500 mt-1">Pilih server dan lakukan pembelian untuk melihat hasilnya di sini.</p>
+              <p className="text-sm text-zinc-400">Belum ada transaksi.</p>
+              <p className="text-[12px] text-zinc-500 mt-1">Isi saldo lalu beli nomor pertama kamu — semuanya tercatat di sini.</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {history.map((item) => (
-                <div key={item.id} className="grid grid-cols-1 sm:grid-cols-5 gap-2 px-4 py-3 rounded-xl bg-zinc-900/60 items-center text-sm">
-                  <span className="text-white font-medium">{item.server} • {item.service}</span>
-                  <span className="text-zinc-400 text-[13px]">{item.country}</span>
-                  <span className="text-zinc-500 text-[12px] font-mono truncate">
-                    {item.otp ? `OTP: ${item.otp}` : item.orderId || "-"}
-                  </span>
-                  <span>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusClass(item.status)}`}>
-                      {item.status}
-                    </span>
-                  </span>
-                  <span className="text-right">
-                    <span className="text-white font-semibold">Rp {formatRupiah(item.price)}</span>
-                    <br />
-                    <span className="text-zinc-500 text-[11px]">{item.waktu}</span>
-                  </span>
-                </div>
+              {orders.map((item) => (
+                <OrderRow
+                  key={item.id}
+                  item={item}
+                  statusCls={statusCls}
+                  statusLabel={statusLabel}
+                  onCopy={handleCopy}
+                  onCheckOtp={() => checkSingleOrder(item)}
+                  onCancel={() => {
+                    setCancelError(null);
+                    setCancelTarget(item);
+                  }}
+                />
               ))}
             </div>
           )}
         </section>
       </main>
 
-      {/* ================= SHEET CHECKOUT / DEPOSIT ================= */}
+      {/* ================= NOTICE TOAST ================= */}
+      <AnimatePresence>
+        {notice && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[92%] max-w-md rounded-2xl border border-white/15 bg-zinc-900/95 backdrop-blur px-5 py-3.5 text-sm text-white text-center shadow-2xl"
+          >
+            <CheckCircle2 className="w-4 h-4 inline-block mr-1.5" style={{ color: ACCENT }} />
+            {notice}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ================= MODAL KONFIRMASI CANCEL ================= */}
+      <AnimatePresence>
+        {cancelTarget && (
+          <ModalShell onClose={() => !cancelBusy && setCancelTarget(null)}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Ban className="w-5 h-5 text-amber-400" /> Batalkan & Refund
+              </h3>
+              <button onClick={() => !cancelBusy && setCancelTarget(null)} className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400">
+                ✕
+              </button>
+            </div>
+            <p className="text-[13px] text-zinc-300 leading-relaxed mb-2">
+              Batalkan order <b className="text-white font-mono text-[12px]">{cancelTarget.orderId}</b>? Saldo
+              <b style={{ color: ACCENT }}> Rp {formatRupiah(cancelTarget.sellPrice)}</b> akan dikembalikan ke saldo kamu.
+            </p>
+            <p className="text-[12px] text-zinc-500 mb-4">Berlaku karena OTP belum masuk dan order sudah berjalan lebih dari 2 menit.</p>
+            {cancelError && (
+              <p className="text-[13px] text-red-300 leading-relaxed mb-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">{cancelError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={requestCancel}
+                disabled={cancelBusy}
+                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-amber-500 hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {cancelBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                {cancelBusy ? "Memproses..." : "Ya, Batalkan & Refund"}
+              </button>
+              <button onClick={() => setCancelTarget(null)} disabled={cancelBusy} className="px-5 py-3 rounded-xl text-sm font-semibold border border-white/10 text-zinc-300 hover:bg-white/5">
+                Tutup
+              </button>
+            </div>
+          </ModalShell>
+        )}
+      </AnimatePresence>
+
+      {/* ================= PANEL ADMIN ================= */}
+      <AnimatePresence>
+        {adminOpen && isAdmin && session && (
+          <ModalShell wide onClose={() => !adminBusy && setAdminOpen(false)}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Settings className="w-5 h-5" style={{ color: RED }} /> Panel Admin
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${role.cls}`}>{role.label}</span>
+              </h3>
+              <button onClick={() => !adminBusy && setAdminOpen(false)} className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400">
+                ✕
+              </button>
+            </div>
+
+            {/* tab bar */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              {[
+                { id: "ringkasan" as const, label: "Ringkasan", icon: <BarChart3 className="w-4 h-4" /> },
+                { id: "customer" as const, label: "Customer", icon: <Users className="w-4 h-4" /> },
+                { id: "transaksi" as const, label: "Transaksi", icon: <History className="w-4 h-4" /> },
+                ...(isOwner ? ([{ id: "staff" as const, label: "Staff CS", icon: <UserCog className="w-4 h-4" /> }, { id: "server" as const, label: "Server", icon: <Server className="w-4 h-4" /> }] as const) : []),
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setAdminTab(tab.id);
+                    setAdminMsg(null);
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-[13px] font-semibold flex items-center gap-1.5 transition-all ${
+                    adminTab === tab.id ? "text-black" : "border border-white/10 text-zinc-300 hover:bg-white/5"
+                  }`}
+                  style={adminTab === tab.id ? { backgroundColor: ACCENT } : {}}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+              {adminBusy && <Loader2 className="w-4 h-4 animate-spin text-zinc-500 ml-auto self-center" />}
+            </div>
+
+            {adminMsg && (
+              <p className="text-[13px] text-amber-300 leading-relaxed mb-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5">
+                {adminMsg}
+              </p>
+            )}
+
+            {/* tab: ringkasan */}
+            {adminTab === "ringkasan" && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <StatCard icon={<Users className="w-5 h-5" />} number={String(adminStatsData?.customerCount ?? "-")} label="Customer" />
+                <StatCard icon={<Wallet className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.totalBalance ?? 0)}`} label="Total saldo customer" />
+                <StatCard icon={<History className="w-5 h-5" />} number={String(adminStatsData?.orderCount ?? "-")} label="Total order" />
+                <StatCard icon={<Timer className="w-5 h-5" />} number={String(adminStatsData?.activeOrderCount ?? "-")} label="Order aktif" />
+                <StatCard icon={<BarChart3 className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.soldTotal ?? 0)}`} label="Penjualan (tidak refund)" />
+                <StatCard icon={<UserCog className="w-5 h-5" />} number={String(adminStatsData?.staffCount ?? "-")} label="Staff CS" />
+                <button onClick={() => { setAdminTab("customer"); loadAdminData(); }} className="col-span-2 sm:col-span-3 py-3 rounded-xl text-sm font-semibold border border-white/10 text-zinc-200 hover:bg-white/5 flex items-center justify-center gap-2">
+                  <Users className="w-4 h-4" /> Kelola saldo customer
+                </button>
+              </div>
+            )}
+
+            {/* tab: customer */}
+            {adminTab === "customer" && (
+              <CustomerAdminTab
+                users={adminUsers}
+                busy={adminBusy}
+                onReload={loadAdminData}
+                onAdjust={adminAdjust}
+              />
+            )}
+
+            {/* tab: transaksi */}
+            {adminTab === "transaksi" && (
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                {adminOrdersData.length === 0 ? (
+                  <p className="text-[13px] text-zinc-500 text-center py-8">Belum ada order.</p>
+                ) : (
+                  adminOrdersData.map((o) => {
+                    const refundable = o.status === "ordered" && !o.otp;
+                    return (
+                      <div key={o.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 text-[13px]">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="text-white font-semibold">{o.username || o.fullName}</span>
+                          <span className="text-zinc-400">{o.providerLabel} • {o.serviceName}</span>
+                          <span className="text-zinc-500">{o.countryName}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCls(o.status)}`}>
+                            {o.otp ? `OTP: ${o.otp}` : statusLabel(o.status)}
+                          </span>
+                          <span className="ml-auto text-white font-bold">Rp {formatRupiah(o.sellPrice)}</span>
+                        </div>
+                        <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
+                          <span className="text-[11px] text-zinc-500 font-mono break-all">{o.orderId}</span>
+                          {refundable ? (
+                            <button
+                              onClick={() => adminRefundOrder(o)}
+                              disabled={adminBusy}
+                              className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-50"
+                            >
+                              <RefreshCw className="w-3 h-3 inline-block mr-1" /> Refund manual
+                            </button>
+                          ) : o.status === "ordered" && o.otp ? (
+                            <span className="text-[11px] text-emerald-400">OTP sudah masuk — tidak bisa refund</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* tab: staff (owner) */}
+            {adminTab === "staff" && isOwner && (
+              <StaffAdminTab
+                users={adminUsers}
+                busy={adminBusy}
+                onCreate={adminCreateStaff}
+                onDelete={adminDeleteStaff}
+              />
+            )}
+
+            {/* tab: server (owner) */}
+            {adminTab === "server" && isOwner && (
+              <div className="space-y-2">
+                {SERVER_LIST.map((s) => {
+                  const enabled = serverVisibility[s.id] !== false;
+                  return (
+                    <div key={s.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{s.label} <span className="text-zinc-500 font-normal text-[12px]">({s.providerLabel})</span></p>
+                        <p className="text-[11px] text-zinc-500 mt-0.5">{enabled ? "Tampil di halaman beli" : "Disembunyikan dari halaman beli"}</p>
+                      </div>
+                      <button
+                        onClick={() => adminToggleServer(s.id, !enabled)}
+                        disabled={adminBusy}
+                        className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${enabled ? "" : "bg-zinc-700"}`}
+                        style={enabled ? { backgroundColor: ACCENT } : {}}
+                        title={enabled ? "Matikan server" : "Nyalakan server"}
+                      >
+                        <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <p className="text-[12px] text-zinc-500 leading-relaxed mt-2">
+                  Server yang dimatikan tidak muncul di halaman beli customer. Provider baru bisa ditambahkan lewat
+                  pengembang (butuh kunci API dari provider tersebut).
+                </p>
+              </div>
+            )}
+          </ModalShell>
+        )}
+      </AnimatePresence>
+
+      {/* ================= SHEET PROSES BELI ================= */}
       <AnimatePresence>
         {payPhase !== "idle" && (
           <motion.div
@@ -1007,39 +1428,6 @@ export default function NokosShopPage() {
                 </button>
               </div>
 
-              {/* Alur: 4 langkah */}
-              <div className="grid grid-cols-4 gap-1 mb-5">
-                {[
-                  { label: "Invoice", state: ["creating", "waitingPayment"] },
-                  { label: "Bayar QR", state: ["waitingPayment"] },
-                  { label: "Order", state: ["ordering", "waitingOtp"] },
-                  { label: "OTP", state: ["success"] },
-                ].map((step) => {
-                  const isActive = (step.state as string[]).includes(payPhase);
-                  const isPast = ["creating", "waitingPayment"].includes(payPhase) && step.label === "Invoice";
-                  const isDone =
-                    (["ordering", "waitingOtp", "success", "error"].includes(payPhase) && ["Invoice", "Bayar QR"].includes(step.label)) ||
-                    (["waitingOtp", "success", "error"].includes(payPhase) && step.label === "Order");
-                  return (
-                    <div key={step.label} className="flex flex-col items-center gap-1">
-                      <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${
-                          isPast || isDone
-                            ? "bg-emerald-500 text-black"
-                            : isActive
-                            ? "bg-white text-black"
-                            : "bg-zinc-800 text-zinc-500"
-                        }`}
-                      >
-                        {isPast || isDone ? "✓" : "•"}
-                      </div>
-                      <span className="text-[10px] text-zinc-500">{step.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Status icon */}
               <div className="flex justify-center mb-4">
                 {payPhase === "error" ? (
                   <XCircle className="w-14 h-14 text-red-500" />
@@ -1057,36 +1445,13 @@ export default function NokosShopPage() {
                 </p>
               )}
 
-              {/* Ringkasan */}
               {payAmount > 0 && (
                 <div className="flex justify-between items-center rounded-xl bg-white/5 px-4 py-3 mb-4">
-                  <span className="text-[13px] text-zinc-300">Total yang dibayar</span>
+                  <span className="text-[13px] text-zinc-300">Total dipotong dari saldo</span>
                   <span className="font-extrabold text-white">Rp {formatRupiah(payAmount)}</span>
                 </div>
               )}
 
-              {/* QR link */}
-              {payUrl && (
-                <div className="space-y-2 mb-4">
-                  <a
-                    href={payUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold text-black"
-                    style={{ backgroundColor: ACCENT }}
-                  >
-                    <QrCode className="w-5 h-5" /> Buka / Scan QR Pembayaran
-                  </a>
-                  <button
-                    onClick={() => handleCopy(payUrl)}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-white/10 text-zinc-300 hover:bg-white/5"
-                  >
-                    <Copy className="w-3.5 h-3.5" /> Salin link QR
-                  </button>
-                </div>
-              )}
-
-              {/* OTP hasil */}
               {resultOtp && (
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-center mb-4">
                   <p className="text-[12px] text-emerald-300 uppercase tracking-widest font-semibold mb-2">Kode OTP Kamu</p>
@@ -1100,27 +1465,16 @@ export default function NokosShopPage() {
                 </div>
               )}
 
+              {resultPhone && (
+                <p className="text-center text-[13px] text-zinc-300 mb-3">
+                  Nomor: <span className="font-mono text-white">{resultPhone}</span>
+                </p>
+              )}
+
               {resultOrderId && (
                 <p className="text-center text-[12px] text-zinc-500 font-mono mb-3 break-all">Order: {resultOrderId}</p>
               )}
 
-              {/* Tombol aksi per kondisi */}
-              {payPhase === "waitingPayment" && (
-                <button
-                  onClick={handleCheckPaymentAgain}
-                  className="w-full py-3 rounded-xl text-sm font-bold bg-white text-black hover:brightness-95"
-                >
-                  Saya Sudah Bayar — Cek Status
-                </button>
-              )}
-              {payPhase === "error" && payReference && !resultOrderId && (
-                <button
-                  onClick={handleRetryOrder}
-                  className="w-full py-3 rounded-xl text-sm font-bold bg-white text-black hover:brightness-95"
-                >
-                  Pembayaran Sudah Lunas — Pesan Nomor Sekarang
-                </button>
-              )}
               {payPhase === "error" && resultOrderId && (
                 <button
                   onClick={handleCheckOtp}
@@ -1142,7 +1496,7 @@ export default function NokosShopPage() {
         )}
       </AnimatePresence>
 
-      {/* ================= MODAL DEPOSIT ================= */}
+      {/* ================= MODAL ISI SALDO ================= */}
       <AnimatePresence>
         {depositOpen && (
           <motion.div
@@ -1156,21 +1510,27 @@ export default function NokosShopPage() {
               initial={{ y: 60, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 60, opacity: 0 }}
-              className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6"
+              className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 max-h-[85vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Wallet className="w-5 h-5" style={{ color: ACCENT }} /> Deposit Saldo
+                  <Wallet className="w-5 h-5" style={{ color: ACCENT }} /> Isi Saldo
                 </h3>
-                <button onClick={() => setDepositOpen(false)} className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400">
+                <button
+                  onClick={() => {
+                    depositPolling.current = false;
+                    setDepositOpen(false);
+                  }}
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400"
+                >
                   ✕
                 </button>
               </div>
 
               <p className="text-[13px] text-zinc-400 mb-4 leading-relaxed">
-                Pilih nominal deposit. Pembayaran via <b className="text-white">QR Paymentku</b> — dana masuk ke
-                akun owner, lalu saldo toko kamu diisi oleh admin.
+                Bayar via <b className="text-white">QR Paymentku</b> — begitu lunas, saldo langsung masuk ke
+                akun kamu secara otomatis. Pembelian nanti dipotong dari saldo ini.
               </p>
 
               <div className="grid grid-cols-3 gap-2 mb-4">
@@ -1201,27 +1561,42 @@ export default function NokosShopPage() {
                 />
               </div>
 
-              {depositDone ? (
-                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 text-center text-sm text-emerald-300">
-                  ✅ QR dibuat. Selesaikan pembayaran lalu konfirmasi ke admin. (Ref: {depositRef})
-                </div>
-              ) : (
+              {depositStatus && (
+                <p className="text-[13px] text-zinc-300 leading-relaxed mb-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                  {depositStatus}
+                </p>
+              )}
+              {depositError && (
+                <p className="text-[13px] text-red-300 leading-relaxed mb-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+                  {depositError}
+                </p>
+              )}
+
+              <div className="flex gap-2">
                 <button
                   onClick={startDeposit}
                   disabled={depositBusy || depositAmount < 5000}
-                  className="w-full py-3.5 rounded-xl text-sm font-bold bg-white text-black hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 py-3.5 rounded-xl text-sm font-bold bg-white text-black hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {depositBusy ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Membuat QR...
+                      <Loader2 className="w-4 h-4 animate-spin" /> Memproses...
                     </>
                   ) : (
                     <>
-                      <QrCode className="w-4 h-4" /> Buat QR Pembayaran
+                      <QrCode className="w-4 h-4" /> Buat QR & Isi Saldo
                     </>
                   )}
                 </button>
-              )}
+                {depositRef && !depositBusy && (
+                  <button
+                    onClick={checkDepositAgain}
+                    className="px-4 py-3.5 rounded-xl text-sm font-semibold border border-white/15 text-zinc-200 hover:bg-white/5 flex items-center gap-2"
+                  >
+                    <RefreshCw className="w-4 h-4" /> Cek Lagi
+                  </button>
+                )}
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -1229,9 +1604,761 @@ export default function NokosShopPage() {
 
       <footer className="border-t border-white/10 mt-12 py-6 text-center text-[12px] text-zinc-500">
         <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
-        <p className="mt-1">Harga yang tampil adalah harga yang kamu bayar. Pembayaran via QR Paymentku.</p>
+        <p className="mt-1">Harga yang tampil adalah harga yang kamu bayar. Pembayaran & isi saldo via QR Paymentku.</p>
       </footer>
     </div>
+  );
+}
+
+/* =====================================================================
+ * SATU BARIS RIWAYAT (dengan tombol periksa OTP & batalkan)
+ * ===================================================================== */
+function OrderRow({
+  item,
+  statusCls,
+  statusLabel,
+  onCopy,
+  onCheckOtp,
+  onCancel,
+}: {
+  item: ShopOrder;
+  statusCls: (s: string) => string;
+  statusLabel: (s: string) => string;
+  onCopy: (text: string) => void;
+  onCheckOtp: () => void;
+  onCancel: () => void;
+}) {
+  const waiting = item.status === "ordered" && !item.otp;
+  const canCancel = waiting && Date.now() - item.createdAt >= CANCEL_MIN_SECONDS * 1000;
+
+  return (
+    <div className="rounded-xl bg-zinc-900/60 border border-white/10 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-white font-medium">
+          {item.providerLabel} • {item.serviceName}
+        </span>
+        <span className="text-zinc-400 text-[13px]">{item.countryName}</span>
+        <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCls(item.status)}`}>
+          {statusLabel(item.status)}
+        </span>
+        <span className="ml-auto text-white font-bold">Rp {formatRupiah(item.sellPrice)}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11px]">
+        <span className="text-zinc-500 font-mono break-all">{item.orderId}</span>
+        <span className="text-zinc-500">{new Date(item.createdAt).toLocaleString("id-ID")}</span>
+      </div>
+
+      {item.otp ? (
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          <span className="text-[11px] text-emerald-400 font-semibold">
+            ⚠️ OTP sudah masuk — order tidak bisa dibatalkan/direfund.
+          </span>
+          <button
+            onClick={() => onCopy(item.otp!)}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-white text-black inline-flex items-center gap-1"
+          >
+            <Copy className="w-3 h-3" /> Salin OTP {item.otp}
+          </button>
+        </div>
+      ) : waiting ? (
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          <button
+            onClick={onCheckOtp}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 text-zinc-200 hover:bg-white/5 inline-flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" /> Periksa OTP
+          </button>
+          {canCancel ? (
+            <button
+              onClick={onCancel}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 inline-flex items-center gap-1"
+            >
+              <Ban className="w-3 h-3" /> Batalkan & Refund
+            </button>
+          ) : (
+            <span className="text-[11px] text-zinc-500 inline-flex items-center gap-1">
+              <Timer className="w-3 h-3" />
+              <CountdownText targetMs={item.createdAt + CANCEL_MIN_SECONDS * 1000} />
+            </span>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CountdownText({ targetMs }: { targetMs: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const diff = Math.max(0, targetMs - now);
+  const m = Math.floor(diff / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  if (diff <= 0) return <>Bisa dibatalkan sekarang</>;
+  return <>Bisa dibatalkan dalam {m}:{String(s).padStart(2, "0")}</>;
+}
+
+/* =====================================================================
+ * MODAL SHELL
+ * ===================================================================== */
+function ModalShell({
+  children,
+  onClose,
+  wide,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 60, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 60, opacity: 0 }}
+        className={`w-full ${wide ? "max-w-3xl" : "max-w-md"} bg-zinc-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 max-h-[88vh] overflow-y-auto`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* =====================================================================
+ * TAB CUSTOMER (panel admin)
+ * ===================================================================== */
+function CustomerAdminTab({
+  users,
+  busy,
+  onReload,
+  onAdjust,
+}: {
+  users: AdminUser[];
+  busy: boolean;
+  onReload: () => void;
+  onAdjust: (user: AdminUser, delta: number) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const customers = users.filter((u) => u.role === "customer");
+  const filtered = query.trim()
+    ? customers.filter((u) => `${u.fullName} ${u.username}`.toLowerCase().includes(query.trim().toLowerCase()))
+    : customers;
+
+  return (
+    <div>
+      <div className="relative mb-3">
+        <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Cari customer (nama / email)…"
+          className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+        />
+      </div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[12px] text-zinc-500">{filtered.length} dari {customers.length} customer</p>
+        <button onClick={onReload} disabled={busy} className="text-[12px] font-semibold text-zinc-300 hover:text-white inline-flex items-center gap-1">
+          <RefreshCw className={`w-3 h-3 ${busy ? "animate-spin" : ""}`} /> Muat ulang
+        </button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-[13px] text-zinc-500 text-center py-8">Belum ada customer.</p>
+      ) : (
+        <div className="space-y-2 max-h-[48vh] overflow-y-auto pr-1">
+          {filtered.map((u) => {
+            const draftVal = draft[u.id] || "";
+            const amount = Number(draftVal) || 0;
+            return (
+              <div key={u.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-white font-semibold">{u.fullName}</span>
+                  <span className="text-zinc-500 text-[12px]">{u.username}</span>
+                  <span className="ml-auto text-[12px] text-zinc-400">
+                    Saldo: <b style={{ color: ACCENT }}>Rp {formatRupiah(u.balance)}</b>
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <input
+                    type="number"
+                    min={0}
+                    value={draftVal}
+                    onChange={(e) => setDraft((p) => ({ ...p, [u.id]: e.target.value }))}
+                    placeholder="Nominal"
+                    className="w-28 rounded-lg bg-zinc-800 border border-white/10 px-3 py-1.5 text-[12px] text-white placeholder:text-zinc-600 focus:border-red-500 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => amount > 0 && onAdjust(u, amount)}
+                    disabled={busy || amount <= 0}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                    style={{ backgroundColor: ACCENT, color: DARK }}
+                  >
+                    <Plus className="w-3 h-3" /> Isi Saldo
+                  </button>
+                  <button
+                    onClick={() => amount > 0 && onAdjust(u, -amount)}
+                    disabled={busy || amount <= 0}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-amber-500/30 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 inline-flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <Minus className="w-3 h-3" /> Kurangi
+                  </button>
+                  {u.balance === 0 && (
+                    <span className="text-[11px] text-zinc-600 ml-auto">belum pernah isi saldo</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================================
+ * TAB STAFF CS (panel admin, owner)
+ * ===================================================================== */
+function StaffAdminTab({
+  users,
+  busy,
+  onCreate,
+  onDelete,
+}: {
+  users: AdminUser[];
+  busy: boolean;
+  onCreate: (input: { username: string; password: string; fullName: string }) => void;
+  onDelete: (userId: string) => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const staff = users.filter((u) => u.role === "cs");
+
+  const submit = () => {
+    if (!username.trim() || !password || password.length < 4) return;
+    onCreate({ username: username.trim().toLowerCase(), password, fullName: fullName.trim() || "Customer Service" });
+    setFullName("");
+    setUsername("");
+    setPassword("");
+  };
+
+  return (
+    <div>
+      <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4 mb-4">
+        <p className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+          <UserCog className="w-4 h-4 text-red-500" /> Buat Akun CS Baru
+        </p>
+        <label className="block mb-2">
+          <span className="text-[12px] text-zinc-400 mb-1 block">Nama CS</span>
+          <input
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="mis. CS Budi"
+            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+          />
+        </label>
+        <label className="block mb-2">
+          <span className="text-[12px] text-zinc-400 mb-1 block">Username / Email</span>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="cs@kako.app"
+            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+          />
+        </label>
+        <label className="block mb-3">
+          <span className="text-[12px] text-zinc-400 mb-1 block">Password</span>
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Minimal 4 karakter"
+            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+          />
+        </label>
+        <button
+          onClick={submit}
+          disabled={busy || !username.trim() || password.length < 4}
+          className="w-full py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+          style={{ backgroundColor: ACCENT, color: DARK }}
+        >
+          <UserPlus className="w-4 h-4" /> Buat Akun CS
+        </button>
+      </div>
+
+      {staff.length === 0 ? (
+        <p className="text-[13px] text-zinc-500 text-center py-6">Belum ada akun CS.</p>
+      ) : (
+        <div className="space-y-2">
+          {staff.map((u) => (
+            <div key={u.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{u.fullName}</p>
+                <p className="text-[12px] text-zinc-500 truncate">{u.username}</p>
+              </div>
+              <button
+                onClick={() => onDelete(u.id)}
+                disabled={busy}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-red-500/30 text-red-300 bg-red-500/10 hover:bg-red-500/20 inline-flex items-center gap-1 disabled:opacity-50"
+              >
+                <Trash2 className="w-3 h-3" /> Hapus
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================================
+ * LANDING PAGE (sebelum login) + modal masuk/daftar
+ * ===================================================================== */
+function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }) {
+  const [authMode, setAuthMode] = useState<"login" | "register" | "owner">("login");
+  const [authOpen, setAuthOpen] = useState(false);
+  const [totalCountries, setTotalCountries] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const lists = await Promise.all(
+        (["kirimkode", "ditznesia"] as ProviderId[]).map((id) => apiListCountries(id).catch(() => [] as Country[]))
+      );
+      if (cancelled) return;
+      const seen = new Set<string>();
+      for (const l of lists) for (const c of l) seen.add(String(c.name || "").trim().toLowerCase());
+      setTotalCountries(seen.size > 0 ? seen.size : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openAuth = (mode: "login" | "register" | "owner") => {
+    setAuthMode(mode);
+    setAuthOpen(true);
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-white selection:bg-red-500/30 relative overflow-hidden">
+      {/* glow dekoratif */}
+      <div className="pointer-events-none absolute -top-32 -left-24 w-96 h-96 rounded-full blur-3xl" style={{ backgroundColor: "rgba(225,6,0,0.22)" }} />
+      <div className="pointer-events-none absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full blur-3xl" style={{ backgroundColor: "rgba(0,230,118,0.10)" }} />
+
+      {/* ================= NAV ================= */}
+      <header className="relative z-10 border-b border-white/10 bg-[#0b0b0f]/70 backdrop-blur-md sticky top-0">
+        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/30">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 12h2m16 0h2M8 12a4 4 0 0 1 4-4 4 4 0 0 1 4 4 4 4 0 0 1-4 4 4 4 0 0 1-4-4 4 4 0 0 1 4 4z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-[15px] font-extrabold tracking-tight">KAKO NOKOS</p>
+              <p className="text-[11px] text-zinc-400 tracking-wide">Toko Nomor Online</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => openAuth("login")} className="px-4 py-2 rounded-xl text-sm font-semibold border border-white/15 text-zinc-200 hover:bg-white/5">
+              Masuk
+            </button>
+            <button
+              onClick={() => openAuth("register")}
+              className="px-4 py-2 rounded-xl text-sm font-bold text-black hover:brightness-110"
+              style={{ backgroundColor: ACCENT }}
+            >
+              Daftar
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="relative z-10">
+        {/* ================= HERO ================= */}
+        <section className="max-w-6xl mx-auto px-5 pt-14 pb-10 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-semibold border border-red-500/30 bg-red-500/10 text-red-300">
+              <Zap className="w-3.5 h-3.5" /> Nomor virtual sekali pakai
+            </span>
+            <h1 className="text-4xl md:text-5xl font-black mt-4 leading-[1.1] tracking-tight">
+              Verifikasi Akun <span style={{ color: ACCENT }}>Tanpa Ribet</span>,
+              <br />
+              Harga <span style={{ color: RED }}>Jelas & Final</span>.
+            </h1>
+            <p className="text-zinc-400 text-[15px] mt-4 leading-relaxed max-w-lg">
+              KAKO NOKOS menjual nomor virtual untuk verifikasi WhatsApp, Telegram, Facebook, Google, dan ratusan
+              layanan lain — lintas negara. Data negara, layanan, stok, dan harga <b className="text-zinc-200">langsung dari server resmi</b>, bukan daftar tempelan.
+            </p>
+            <div className="flex flex-wrap gap-3 mt-6">
+              <button
+                onClick={() => openAuth("register")}
+                className="px-6 py-3.5 rounded-2xl text-black text-sm font-bold shadow-lg shadow-emerald-500/20 flex items-center gap-2 hover:brightness-110 active:scale-[0.99] transition-all"
+                style={{ backgroundColor: ACCENT }}
+              >
+                Daftar Gratis — Isi Saldo Pertama <ArrowRight className="w-4 h-4" />
+              </button>
+              <button onClick={() => openAuth("login")} className="px-6 py-3.5 rounded-2xl text-white text-sm font-semibold border border-white/20 hover:bg-white/5 flex items-center gap-2">
+                <LogIn className="w-4 h-4" /> Saya sudah punya akun
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-8 max-w-md">
+              <div>
+                <p className="text-2xl font-black" style={{ color: ACCENT }}>{totalCountries == null ? "…" : totalCountries}</p>
+                <p className="text-[11px] text-zinc-500">Negara (semua server)</p>
+              </div>
+              <div>
+                <p className="text-2xl font-black" style={{ color: ACCENT }}>24/7</p>
+                <p className="text-[11px] text-zinc-500">OTP dicek otomatis</p>
+              </div>
+              <div>
+                <p className="text-2xl font-black" style={{ color: ACCENT }}>0</p>
+                <p className="text-[11px] text-zinc-500">Biaya tersembunyi</p>
+              </div>
+            </div>
+          </div>
+
+          {/* kartu mock */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+            className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 max-w-md mx-auto w-full">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-bold flex items-center gap-2"><Globe className="w-4 h-4 text-red-500" /> Pilih Server</p>
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: ACCENT, color: DARK }}>LIVE</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SERVER_LIST.slice(0, 3).map((s) => (
+                <span key={s.id} className="px-4 py-2 rounded-xl text-[13px] font-semibold bg-zinc-800 text-white border border-white/10">{s.label}</span>
+              ))}
+            </div>
+            <div className="mt-4 rounded-2xl bg-zinc-950/80 border border-white/10 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[12px] text-zinc-400">Negara terpopuler</span>
+                <span className="text-[11px] text-zinc-500">indonesia 🇮🇩</span>
+              </div>
+              {[
+                { name: "WhatsApp", price: "Rp 3.500", stok: "stok 412" },
+                { name: "Telegram", price: "Rp 2.100", stok: "stok 208" },
+                { name: "Facebook", price: "Rp 1.800", stok: "stok 96" },
+              ].map((s) => (
+                <div key={s.name} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                  <span className="text-[13px] text-white font-medium">{s.name}</span>
+                  <span className="text-[12px] font-bold" style={{ color: ACCENT }}>{s.price} <span className="text-zinc-600 font-normal">• {s.stok}</span></span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-[12px] text-zinc-400">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              Harga di layar = harga yang kamu bayar. Tidak ada markup rahasia.
+            </div>
+          </motion.div>
+        </section>
+
+        {/* ================= CARA KERJA ================= */}
+        <section className="max-w-6xl mx-auto px-5 py-10">
+          <h2 className="text-2xl md:text-3xl font-extrabold text-center">Gimana Cara Kerjanya?</h2>
+          <p className="text-zinc-500 text-sm text-center mt-2 max-w-xl mx-auto">
+            Sistem <b className="text-white">isi saldo (deposit)</b> — bukan bayar per transaksi. Lebih aman buat kamu.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+            {[
+              { icon: <Wallet className="w-6 h-6 text-red-500" />, step: "01", title: "Daftar & Isi Saldo", desc: "Buat akun gratis (email + password), lalu isi saldo lewat QR Paymentku. Saldo masuk otomatis begitu bayaran lunas." },
+              { icon: <ShoppingCart className="w-6 h-6 text-red-500" />, step: "02", title: "Pilih & Beli Nomor", desc: "Pilih server, negara, dan layanan yang kamu butuhkan. Harga final langsung dipotong dari saldo — tidak ada biaya lain." },
+              { icon: <PhoneIncoming className="w-6 h-6 text-red-500" />, step: "03", title: "OTP Otomatis Masuk", desc: "Kode OTP dicek otomatis sampai ketemu lalu tampil di riwayat. Gagal = saldo kembali otomatis." },
+            ].map((c) => (
+              <div key={c.step} className="rounded-3xl border border-white/10 bg-zinc-900/50 p-6 relative overflow-hidden">
+                <span className="absolute -top-3 -right-1 text-[72px] font-black text-white/[0.04] select-none">{c.step}</span>
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: "rgba(225,6,0,0.15)" }}>
+                  {c.icon}
+                </div>
+                <p className="font-bold text-lg">{c.title}</p>
+                <p className="text-zinc-400 text-[13px] mt-2 leading-relaxed">{c.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ================= GARANSI & ATURAN ================= */}
+        <section className="max-w-6xl mx-auto px-5 py-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/[0.04] p-6">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" /> Kamu Tidak Akan Rugi
+              </h3>
+              <ul className="mt-4 space-y-3 text-[14px] text-zinc-300 leading-relaxed">
+                <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" /> Kalau order gagal dibuat server, <b>saldo dikembalikan otomatis</b>.</li>
+                <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" /> Kalau nomor tak kunjung dapat OTP, kamu bisa <b>batalkan & refund</b> — saldo balik utuh.</li>
+                <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" /> Semua transaksi tercatat di <b>Riwayat</b> akun kamu.</li>
+              </ul>
+            </div>
+            <div className="rounded-3xl border border-white/10 bg-zinc-900/50 p-6">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Timer className="w-5 h-5 text-amber-400" /> Aturan Batalkan & Refund
+              </h3>
+              <ul className="mt-4 space-y-3 text-[14px] text-zinc-300 leading-relaxed">
+                <li className="flex gap-2"><span className="text-amber-400 font-bold flex-shrink-0">1.</span> Pembatalan hanya bisa dilakukan <b>minimal 2 menit</b> setelah order dibuat.</li>
+                <li className="flex gap-2"><span className="text-amber-400 font-bold flex-shrink-0">2.</span> Kalau <b>kode OTP sudah masuk</b>, order tidak bisa dibatalkan/direfund — nomor sudah terpakai.</li>
+                <li className="flex gap-2"><span className="text-amber-400 font-bold flex-shrink-0">3.</span> Refund selalu kembali ke <b>saldo akun</b>, siap dipakai beli lagi.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* ================= CTA ================= */}
+        <section className="max-w-6xl mx-auto px-5 py-12 text-center">
+          <div className="rounded-3xl p-10 md:p-14 relative overflow-hidden border border-white/10" style={{ background: "linear-gradient(135deg, rgba(225,6,0,0.16), rgba(11,11,15,0.6) 55%), #0b0b0f" }}>
+            <h2 className="text-3xl md:text-4xl font-black">Siap Verifikasi Akun Kamu?</h2>
+            <p className="text-zinc-400 text-sm mt-3 max-w-lg mx-auto">
+              Daftar gratis, isi saldo sekali, dan langsung bisa beli nomor virtual dari ratusan layanan lintas negara.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3 mt-6">
+              <button onClick={() => openAuth("register")} className="px-7 py-3.5 rounded-2xl text-sm font-bold text-black hover:brightness-110" style={{ backgroundColor: ACCENT }}>
+                Daftar Sekarang — Gratis
+              </button>
+              <button onClick={() => openAuth("login")} className="px-7 py-3.5 rounded-2xl text-sm font-semibold border border-white/20 hover:bg-white/5">
+                Masuk
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="relative z-10 border-t border-white/10 mt-6 py-6 text-center text-[12px] text-zinc-500">
+        <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
+        <p className="mt-1">Toko nomor virtual online — harga tampil = harga bayar. Pembayaran via QR Paymentku.</p>
+      </footer>
+
+      {/* ============ MODAL MASUK / DAFTAR ============ */}
+      <AnimatePresence>
+        {authOpen && (
+          <AuthModal
+            initialMode={authMode}
+            onClose={() => setAuthOpen(false)}
+            onAuthed={(user) => {
+              setAuthOpen(false);
+              onAuthed(user);
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* =====================================================================
+ * MODAL AUTH: Masuk | Daftar | Owner
+ * ===================================================================== */
+function AuthModal({
+  initialMode,
+  onClose,
+  onAuthed,
+}: {
+  initialMode: "login" | "register" | "owner";
+  onClose: () => void;
+  onAuthed: (user: ShopUser) => void;
+}) {
+  const [mode, setMode] = useState<"login" | "register" | "owner">(initialMode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  const submit = async () => {
+    setError(null);
+    if (!email.trim() || !password) {
+      setError("Isi email dan password dulu.");
+      return;
+    }
+    if (mode !== "login" && password.length < 4) {
+      setError("Password minimal 4 karakter.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (mode === "register") {
+        const reg = await apiShopRegister({ email, password, fullName });
+        if (!reg.success) {
+          setError(reg.error || "Gagal mendaftar.");
+          return;
+        }
+      } else if (mode === "owner") {
+        const reg = await apiShopRegisterOwner({ email, password, fullName, code });
+        if (!reg.ok) {
+          setError(reg.error || "Gagal membuat akun Owner.");
+          return;
+        }
+      }
+      const res = await apiShopLogin(email, password);
+      if (!res.ok || !res.user) {
+        setError(res.error || "Login gagal.");
+        return;
+      }
+      onAuthed(res.user);
+    } catch (err: any) {
+      setError(err?.message || "Terjadi kesalahan. Coba lagi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const tabCls = (active: boolean) =>
+    active
+      ? "text-black font-bold"
+      : "text-zinc-400 hover:text-white border border-white/10";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 60, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 60, opacity: 0 }}
+        className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-white">
+            {mode === "login" ? "Masuk" : mode === "owner" ? "Daftar Owner" : "Daftar Akun"}
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400">
+            ✕
+          </button>
+        </div>
+
+        {/* pilihan mode */}
+        <div className="grid grid-cols-3 gap-2 mb-5">
+          {([
+            { id: "login" as const, label: "Masuk" },
+            { id: "register" as const, label: "Daftar" },
+            { id: "owner" as const, label: "Owner/CS" },
+          ]).map((m) => (
+            <button
+              key={m.id}
+              onClick={() => {
+                setMode(m.id);
+                setError(null);
+              }}
+              className={`py-2 rounded-xl text-[13px] transition-all ${tabCls(mode === m.id)}`}
+              style={mode === m.id ? { backgroundColor: ACCENT } : {}}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="text-[12px] text-zinc-500 mb-4 leading-relaxed -mt-1">
+          {mode === "login" && "Masuk untuk melihat saldo dan membeli nomor."}
+          {mode === "register" && "Buat akun — saldo kamu tersimpan dan bisa diisi kapan saja."}
+          {mode === "owner" && "Pendaftaran khusus pemilik toko (butuh Kode Owner dari admin/developer)."}
+        </p>
+
+        {mode !== "login" && (
+          <label className="block mb-3">
+            <span className="text-[12px] text-zinc-400 mb-1 block">Nama {mode === "owner" ? "Owner" : "(opsional)"}</span>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder={mode === "owner" ? "Nama pemilik toko" : "Nama kamu"}
+              className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+            />
+          </label>
+        )}
+        <label className="block mb-3">
+          <span className="text-[12px] text-zinc-400 mb-1 block">Email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="nama@email.com"
+            autoComplete="email"
+            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+          />
+        </label>
+        <label className="block mb-3">
+          <span className="text-[12px] text-zinc-400 mb-1 block">Password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={mode === "login" ? "Password kamu" : "Minimal 4 karakter"}
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+          />
+        </label>
+        {mode === "owner" && (
+          <label className="block mb-4">
+            <span className="text-[12px] text-zinc-400 mb-1 block flex items-center gap-1">
+              <KeyRound className="w-3 h-3" /> Kode Owner
+            </span>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Kode rahasia dari pemilik"
+              className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none font-mono"
+            />
+            <span className="text-[11px] text-zinc-600 mt-1 block">
+              Belum punya kode? Hubungi developer toko ini. Tab ini bukan untuk customer.
+            </span>
+          </label>
+        )}
+
+        {error && (
+          <p className="text-[13px] text-red-300 leading-relaxed mb-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+            {error}
+          </p>
+        )}
+
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="w-full py-3.5 rounded-xl text-sm font-bold text-black hover:brightness-110 disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg"
+          style={{ backgroundColor: ACCENT }}
+        >
+          {busy ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Memproses...
+            </>
+          ) : mode === "login" ? (
+            <>
+              <LogIn className="w-4 h-4" /> Masuk
+            </>
+          ) : mode === "owner" ? (
+            <>
+              <UserCog className="w-4 h-4" /> Buat Akun Owner
+            </>
+          ) : (
+            <>
+              <UserPlus className="w-4 h-4" /> Daftar
+            </>
+          )}
+        </button>
+
+        <p className="text-[11px] text-zinc-500 text-center mt-4 leading-relaxed">
+          Nomor virtual untuk verifikasi WhatsApp, Telegram, dan lainnya. Isi saldo lalu beli — harga yang tampil
+          itulah yang dibayar.
+        </p>
+      </motion.div>
+    </motion.div>
   );
 }
 

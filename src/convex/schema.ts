@@ -10,8 +10,49 @@ export default defineSchema({
     role: v.string(), // "owner" | "customer"
     createdBy: v.string(),
     createdAt: v.number(),
+    balance: v.optional(v.number()), // saldo customer (Rupiah)
   })
     .index("by_username", ["username"]),
+
+  // Pengaturan toko yang bisa diubah Owner dari Panel Admin (mis. visibilitas server)
+  nokosSettings: defineTable({
+    key: v.string(),
+    value: v.any(),
+  })
+    .index("by_key", ["key"]),
+
+  // Deposit (isi saldo) customer — dicatat biar kredit saldo hanya sekali
+  nokosDeposits: defineTable({
+    userId: v.id("appUsers"),
+    referenceId: v.string(),
+    amount: v.number(),
+    status: v.string(), // "pending" | "paid" | "expired"
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_reference", ["referenceId"])
+    .index("by_user", ["userId", "createdAt"]),
+
+  // Riwayat order nomor per customer
+  nokosOrders: defineTable({
+    userId: v.id("appUsers"),
+    provider: v.string(),
+    providerLabel: v.string(),
+    country: v.string(),
+    countryName: v.optional(v.string()),
+    service: v.string(),
+    serviceName: v.optional(v.string()),
+    orderId: v.string(), // id order dari provider
+    sellPrice: v.number(),
+    providerPrice: v.number(),
+    status: v.string(), // "ordered" | "otp" | "done" | "refunded" | "failed"
+    otp: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_orderId", ["orderId"])
+    .index("by_user", ["userId", "createdAt"]),
 
   // Registered users (synced from localStorage)
   chatUsers: defineTable({

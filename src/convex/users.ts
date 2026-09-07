@@ -1,6 +1,42 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
+// Daftar sendiri oleh customer (email dipakai sebagai username)
+export const registerCustomer = mutation({
+  args: {
+    email: v.string(),
+    password: v.string(),
+    fullName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { success: false, error: "Email tidak valid." };
+    }
+    if (args.password.length < 4) {
+      return { success: false, error: "Password minimal 4 karakter." };
+    }
+    const existing = await ctx.db
+      .query("appUsers")
+      .withIndex("by_username", (q) => q.eq("username", email))
+      .first();
+    if (existing) {
+      return { success: false, error: "Email sudah terdaftar. Silakan login." };
+    }
+    const name = (args.fullName || "").trim() || email.split("@")[0] || "Customer";
+    const id = await ctx.db.insert("appUsers", {
+      username: email,
+      password: args.password,
+      fullName: name,
+      role: "customer",
+      createdBy: "self-register",
+      createdAt: Date.now(),
+      balance: 0,
+    });
+    return { success: true, id };
+  },
+});
+
 // Owner creates a new user account
 export const createUser = mutation({
   args: {
@@ -15,7 +51,7 @@ export const createUser = mutation({
     const existing = await ctx.db
       .query("appUsers")
       .withIndex("by_username", (q) => q.eq("username", args.username))
-      .unique();
+      .first();
 
     if (existing) {
       return { success: false, error: "Username sudah digunakan" };
@@ -58,7 +94,7 @@ export const verifyLogin = query({
     const user = await ctx.db
       .query("appUsers")
       .withIndex("by_username", (q) => q.eq("username", args.username))
-      .unique();
+      .first();
 
     if (!user) return null;
     if (user.password !== args.password) return null;
@@ -83,7 +119,7 @@ export const updateUsername = mutation({
     const existing = await ctx.db
       .query("appUsers")
       .withIndex("by_username", (q) => q.eq("username", args.newUsername))
-      .unique();
+      .first();
     if (existing && existing._id !== args.userId) {
       return { success: false, error: "Username sudah digunakan" };
     }
@@ -119,7 +155,7 @@ export const updateProfilePhoto = mutation({
     const user = await ctx.db
       .query("chatUsers")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .unique();
+      .first();
 
     if (user) {
       await ctx.db.patch(user._id, { profilePhoto: args.profilePhoto });

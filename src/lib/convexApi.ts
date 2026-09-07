@@ -190,10 +190,264 @@ export async function apiGetOrderStatus(provider: ProviderId, orderId: string): 
   return callAction("shop:getOrderStatus", { provider, orderId });
 }
 
+/* =====================================================================
+ * AKUN & SALDO (login email+password, deposit QR, beli potong saldo)
+ * ===================================================================== */
+
+export type ShopUser = {
+  id: string;
+  username: string;
+  fullName: string;
+  role: string;
+};
+
+export type ShopOrder = {
+  id: string;
+  provider: string;
+  providerLabel: string;
+  countryName: string;
+  serviceName: string;
+  orderId: string;
+  sellPrice: number;
+  status: string;
+  otp: string | null;
+  error: string | null;
+  createdAt: number;
+};
+
+/** Daftar akun customer (email + password). */
+export async function apiShopRegister(opts: {
+  email: string;
+  password: string;
+  fullName?: string;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  return callAction<{ success: boolean; id?: string; error?: string }>("shop:registerCustomer", {
+    email: opts.email,
+    password: opts.password,
+    fullName: opts.fullName ?? undefined,
+  });
+}
+
+/** Login email + password. */
+export async function apiShopLogin(
+  username: string,
+  password: string
+): Promise<{ ok: boolean; user?: ShopUser; error?: string }> {
+  return callAction<{ ok: boolean; user?: ShopUser; error?: string }>("shop:loginCustomer", {
+    username,
+    password,
+  });
+}
+
+/** Info saldo customer. */
+export async function apiShopWallet(userId: string): Promise<{
+  ok: boolean;
+  wallet?: { balance: number; username: string; fullName: string };
+  error?: string;
+}> {
+  return callAction("shop:getWallet", { userId });
+}
+
+/** Riwayat order customer. */
+export async function apiShopOrders(userId: string): Promise<{
+  ok: boolean;
+  orders?: ShopOrder[];
+  error?: string;
+}> {
+  return callAction("shop:listMyOrders", { userId });
+}
+
+/** Buat invoice deposit (QR Paymentku). */
+export async function apiShopDepositCreate(
+  userId: string,
+  amount: number
+): Promise<{ ok: boolean; referenceId?: string; amount?: number; payUrl?: string; error?: string }> {
+  return callAction("shop:depositCreate", { userId, amount });
+}
+
+/** Cek status deposit & kredit saldo otomatis. */
+export async function apiShopDepositPoll(referenceId: string): Promise<{
+  ok: boolean;
+  paid?: boolean;
+  status?: string;
+  balance?: number;
+  error?: string;
+}> {
+  return callAction("shop:depositPoll", { referenceId });
+}
+
+/** Beli nomor potong saldo (gagal = saldo dikembalikan otomatis). */
+export async function apiShopBuyWithBalance(opts: {
+  userId: string;
+  provider: ProviderId;
+  country: number | string;
+  service: number | string;
+  providerPrice: number;
+  countryName?: string;
+  serviceName?: string;
+  operator?: number | string;
+}): Promise<{
+  ok: boolean;
+  orderId?: string | null;
+  provider?: string;
+  sellPrice?: number;
+  balance?: number;
+  refunded?: boolean;
+  error?: string;
+}> {
+  return callAction("shop:buyWithBalance", {
+    userId: opts.userId,
+    provider: opts.provider,
+    country: opts.country,
+    service: opts.service,
+    providerPrice: opts.providerPrice,
+    countryName: opts.countryName ?? undefined,
+    serviceName: opts.serviceName ?? undefined,
+    operator: opts.operator ?? "any",
+  });
+}
+
 /** Harga jual = harga provider + 30% (harus sama dengan hitungan backend). */
 export function computeSellPrice(providerPrice: number): number {
   const base = Math.max(0, Math.floor(Number(providerPrice) || 0));
   return Math.max(0, Math.round(base * 1.3));
+}
+
+/* =====================================================================
+ * OWNER & CS (panel admin) + aturan cancel/refund
+ * ===================================================================== */
+
+/** Daftar akun Owner pertama — kode rahasia dikirim ke server, tidak disimpan. */
+export async function apiShopRegisterOwner(opts: {
+  email: string;
+  password: string;
+  fullName?: string;
+  code: string;
+}): Promise<{ ok: boolean; id?: string; error?: string }> {
+  return callAction<{ ok: boolean; id?: string; error?: string }>("shop:registerOwner", {
+    email: opts.email,
+    password: opts.password,
+    fullName: opts.fullName ?? undefined,
+    code: opts.code,
+  });
+}
+
+/** Owner membuat akun CS. */
+export async function apiShopCreateStaff(opts: {
+  actorId: string;
+  username: string;
+  password: string;
+  fullName: string;
+}): Promise<{ ok: boolean; id?: string; error?: string }> {
+  return callAction("shop:createStaff", {
+    actorId: opts.actorId,
+    username: opts.username,
+    password: opts.password,
+    fullName: opts.fullName,
+  });
+}
+
+/** Owner menghapus akun CS. */
+export async function apiShopDeleteStaff(actorId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
+  return callAction("shop:deleteStaff", { actorId, userId });
+}
+
+export type AdminUser = {
+  id: string;
+  username: string;
+  fullName: string;
+  role: string;
+  balance: number;
+  createdAt: number;
+};
+
+export type AdminOrder = ShopOrder & {
+  userId: string;
+  username: string;
+  fullName: string;
+  providerPrice: number;
+};
+
+export type AdminStats = {
+  userCount: number;
+  customerCount: number;
+  staffCount: number;
+  ownerCount: number;
+  orderCount: number;
+  activeOrderCount: number;
+  soldTotal: number;
+  totalBalance: number;
+};
+
+/** Statistik panel admin. */
+export async function apiAdminStats(actorId: string): Promise<{ ok: boolean; stats?: AdminStats; error?: string }> {
+  return callAction("shop:adminStats", { actorId });
+}
+
+/** Daftar semua akun (owner/cs). */
+export async function apiAdminListUsers(actorId: string): Promise<{ ok: boolean; users?: AdminUser[]; error?: string }> {
+  return callAction("shop:adminListUsers", { actorId });
+}
+
+/** Ubah saldo customer (amount positif/negatif). */
+export async function apiAdminAdjustBalance(
+  actorId: string,
+  userId: string,
+  amount: number
+): Promise<{ ok: boolean; balance?: number; error?: string }> {
+  return callAction("shop:adminAdjustBalance", { actorId, userId, amount });
+}
+
+/** Riwayat order semua customer. */
+export async function apiAdminOrders(actorId: string): Promise<{ ok: boolean; orders?: AdminOrder[]; error?: string }> {
+  return callAction("shop:adminOrders", { actorId });
+}
+
+/** Refund manual oleh Owner/CS (ditolak bila OTP sudah masuk). */
+export async function apiAdminRefundOrder(
+  actorId: string,
+  rowId: string
+): Promise<{ ok: boolean; refunded?: number; balance?: number; otp?: string; error?: string }> {
+  return callAction("shop:adminRefundOrder", { actorId, rowId });
+}
+
+/** Customer membatalkan order sendiri — minimal 2 menit & tidak bisa bila OTP masuk. */
+export async function apiShopCancelOrder(
+  userId: string,
+  orderId: string
+): Promise<{ ok: boolean; refunded?: number; balance?: number; otp?: string; retryAfterSeconds?: number; error?: string }> {
+  return callAction("shop:cancelOrder", { userId, orderId });
+}
+
+/** Simpan OTP yang ditemukan ke riwayat. */
+export async function apiShopRecordOtp(
+  userId: string,
+  orderId: string,
+  otp: string
+): Promise<{ ok: boolean; error?: string }> {
+  return callAction("shop:recordOtp", { userId, orderId, otp });
+}
+
+/** Periksa ulang satu order milik customer (tombol "Periksa OTP"). */
+export async function apiShopCheckMyOrder(
+  userId: string,
+  orderId: string
+): Promise<{ ok: boolean; status?: string; otp?: string | null; error?: string }> {
+  return callAction("shop:checkMyOrder", { userId, orderId });
+}
+
+/** Baca pengaturan toko (visibilitas server). */
+export async function apiShopGetSettings(): Promise<{ ok: boolean; servers?: Record<string, boolean>; error?: string }> {
+  return callAction("shop:getServerSettings", {});
+}
+
+/** Owner menyalakan/mematikan server di halaman beli. */
+export async function apiShopSetServerEnabled(
+  actorId: string,
+  serverKey: string,
+  enabled: boolean
+): Promise<{ ok: boolean; servers?: Record<string, boolean>; error?: string }> {
+  return callAction("shop:setServerEnabled", { actorId, serverKey, enabled });
 }
 
 export function formatRupiah(value: number): string {
