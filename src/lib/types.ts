@@ -22,4 +22,4 @@ export interface DateFilter {
   endDate: string;
 }
 
-export type ViewMode = "dashboard" | "add" | "transactions" | "reports" | "settings" | "budget" | "security" | "chat" | "notifications" | "gallery" | "owner";
+export type ViewMode = "dashboard" | "add" | "transactions" | "reports" | "settings" | "budget" | "security" | "chat" | "notifications" | "gallery" | "owner" | "nokos";

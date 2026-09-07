@@ -5,7 +5,7 @@ import { useAuth, useTheme } from "@/contexts/AppContext";
 import Button from "@/components/ui/Button";
 import { isBiometricAvailable, registerCredential, hasCredential, removeCredential } from "@/lib/biometric";
 import { useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 
 export default function SecurityPage() {
   const { user, biometricEnabled, setBiometricEnabled } = useAuth();

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Clock, Video, VideoOff, Mic, MicOff, Volume2, Maximize2, UserPlus, MoreHorizontal } from "lucide-react";
 import { ConvexProvider, ConvexReactClient, useMutation, useQuery } from "convex/react";
-import { api } from "../convex/_generated/api";
+import { api } from "./convex/_generated/api";
 import { AuthProvider, useAuth, DataProvider, ThemeProvider, useTheme, useData } from "@/contexts/AppContext";
 import { playCallSound, playEndCallSound, sendNotificationWithSound, playMessageSound } from "@/lib/sounds";
 import { startRinging, stopRinging, startIncomingRing, stopIncomingRing } from "@/lib/callSounds";
@@ -20,12 +20,14 @@ import TransactionList from "@/components/TransactionList";
 import ChatPage from "@/pages/ChatPage";
 import GalleryPage from "@/pages/GalleryPage";
 import OwnerPage from "@/pages/OwnerPage";
+import NokosShopPage from "@/pages/NokosShopPage";
 
 const convex = new ConvexReactClient("https://adamant-hedgehog-160.convex.cloud");
 
 function AppContent() {
   const { isAuthenticated, user } = useAuth();
   const { theme } = useTheme();
+
   const [currentView, setCurrentView] = useState<ViewMode>("dashboard");
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
@@ -592,7 +594,12 @@ function AppContent() {
     document.body.className = isDark ? "theme-dark" : "theme-light";
   }, [isDark]);
 
-  if (!isAuthenticated) return <LoginPage />;
+  // Halaman utama sekarang langsung toko KAKO NOKOS (tanpa menu login/daftar).
+  // Diletakkan di sini — SETELAH semua hook — supaya jumlah hook tidak berubah
+  // saat status login berganti (Rules of Hooks), yang bisa membuat React crash.
+  if (!isAuthenticated) {
+    return <NokosShopPage />;
+  }
 
   return (
     <DataProvider>
@@ -610,6 +617,7 @@ function AppContent() {
           {currentView === "chat" && <ChatPage />}
           {currentView === "gallery" && <GalleryPage />}
           {currentView === "owner" && <OwnerPage />}
+          {currentView === "nokos" && <NokosShopPage />}
         </main>
 
         {/* Global Call Overlay — incoming or outgoing */}

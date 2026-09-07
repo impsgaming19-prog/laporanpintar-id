@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Users, UserPlus, Trash2, Crown, X, Eye, EyeOff, Copy, Check } from "lucide-react";
 import { useAuth, useTheme } from "@/contexts/AppContext";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 
 export default function OwnerPage() {
   const { user } = useAuth();

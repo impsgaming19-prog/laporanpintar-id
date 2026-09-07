@@ -1,10 +1,11 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --color-primary: #10b981;
-  --color-primary-light: #34d399;
-  --color-primary-dark: #059669;
+  --font-sans: "Manrope", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --color-primary: #e10600;
+  --color-primary-light: #ff3333;
+  --color-primary-dark: #b30400;
+  --color-accent: #00e676;
 }
 
 html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }

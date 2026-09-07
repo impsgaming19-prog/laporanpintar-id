@@ -1,0 +1,12 @@
+# Kredensial & data — JANGAN pernah masuk git
+.env
+config_local.py
+*.session
+*.session-journal
+*.json.bak
+error.log
+__pycache__/
+
+# Data runtime nokos (nomor HP, kode OTP, saldo user) — rahasia
+nokos_orders.json
+nokos_wallet.json

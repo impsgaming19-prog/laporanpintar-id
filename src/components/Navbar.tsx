@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LogOut, LayoutDashboard, ArrowLeftRight, Target, FileText,
   Shield, Settings, Menu, X, DollarSign, Moon, Sun, Bell, MessageCircle, Image,
+  Store, History,
 } from "lucide-react";
 import { useAuth, useTheme } from "@/contexts/AppContext";
 import { useData } from "@/contexts/AppContext";
@@ -21,6 +22,7 @@ export default function Navbar({ currentView, onNavigate }: NavbarProps) {
   const menuItems: { view: ViewMode; label: string; icon: React.ReactNode }[] = [
     { view: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-[22px] h-[22px]" /> },
     { view: "transactions", label: "Transaksi", icon: <ArrowLeftRight className="w-[22px] h-[22px]" /> },
+    { view: "nokos", label: "KAKO NOKOS", icon: <Store className="w-[22px] h-[22px]" /> },
     { view: "chat", label: "Chat", icon: <MessageCircle className="w-[22px] h-[22px]" /> },
     { view: "budget", label: "Budget & Target", icon: <Target className="w-[22px] h-[22px]" /> },
     { view: "reports", label: "Laporan & Export", icon: <FileText className="w-[22px] h-[22px]" /> },

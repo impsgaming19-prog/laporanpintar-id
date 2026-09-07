@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Camera, User, Palette, Fingerprint, Info, HelpCircle, Shield, LogOut } from "lucide-react";
 import { useAuth, useTheme, type Theme } from "@/contexts/AppContext";
 import { useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 
 export default function SettingsPage() {
   const { user, profilePhoto, setProfilePhoto, biometricEnabled, setBiometricEnabled, logout } = useAuth();

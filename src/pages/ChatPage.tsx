@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { useAuth, useTheme, useData } from "@/contexts/AppContext";
 import { useMutation, useQuery, useAction } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 import { playMessageSound, sendNotificationWithSound, updateTitleBadge } from "@/lib/sounds";
 
 type ChatView = "inbox" | "search" | "conversation" | "callhistory";
