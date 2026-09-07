@@ -359,6 +359,20 @@ export type AdminUser = {
   role: string;
   balance: number;
   createdAt: number;
+  createdBy?: string;
+  lastLoginAt?: number | null;
+};
+
+export type AdminDeposit = {
+  id: string;
+  userId: string;
+  username: string;
+  fullName: string;
+  referenceId: string;
+  amount: number;
+  status: string;
+  createdAt: number;
+  paidAt: number | null;
 };
 
 export type AdminOrder = ShopOrder & {
@@ -377,6 +391,12 @@ export type AdminStats = {
   activeOrderCount: number;
   soldTotal: number;
   totalBalance: number;
+  depositCount: number;
+  depositTotal: number;
+  depositPending: number;
+  refundCount: number;
+  refundTotal: number;
+  statusBreakdown?: Record<string, number>;
 };
 
 /** Statistik panel admin. */
@@ -401,6 +421,11 @@ export async function apiAdminAdjustBalance(
 /** Riwayat order semua customer. */
 export async function apiAdminOrders(actorId: string): Promise<{ ok: boolean; orders?: AdminOrder[]; error?: string }> {
   return callAction("shop:adminOrders", { actorId });
+}
+
+/** Riwayat deposit customer (khusus Owner). */
+export async function apiAdminDeposits(actorId: string): Promise<{ ok: boolean; deposits?: AdminDeposit[]; error?: string }> {
+  return callAction("shop:adminDeposits", { actorId });
 }
 
 /** Refund manual oleh Owner/CS (ditolak bila OTP sudah masuk). */

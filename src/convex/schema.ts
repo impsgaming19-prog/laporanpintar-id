@@ -11,6 +11,7 @@ export default defineSchema({
     createdBy: v.string(),
     createdAt: v.number(),
     balance: v.optional(v.number()), // saldo customer (Rupiah)
+    lastLoginAt: v.optional(v.number()),
   })
     .index("by_username", ["username"]),
 

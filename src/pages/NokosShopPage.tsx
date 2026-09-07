@@ -37,6 +37,7 @@ import {
 import {
   apiCreatePayment,
   apiAdminAdjustBalance,
+  apiAdminDeposits,
   apiAdminListUsers,
   apiAdminOrders,
   apiAdminRefundOrder,
@@ -61,6 +62,7 @@ import {
   apiShopWallet,
   computeSellPrice,
   formatRupiah,
+  type AdminDeposit,
   type AdminOrder,
   type AdminStats,
   type AdminUser,
@@ -70,6 +72,10 @@ import {
   type ShopOrder,
   type ShopUser,
 } from "@/lib/convexApi";
+import {
+  AdminDepositTab,
+  CustomerAdminTab as CustomerAdminTabPanel,
+} from "@/pages/adminBits";
 
 /* ---------- brand ---------- */
 const RED = "#e10600";
@@ -202,10 +208,11 @@ export default function NokosShopPage() {
 
   /* ---------- panel admin (owner/cs) ---------- */
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminTab, setAdminTab] = useState<"ringkasan" | "customer" | "transaksi" | "staff" | "server">("ringkasan");
+  const [adminTab, setAdminTab] = useState<"ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "server">("ringkasan");
   const [adminStatsData, setAdminStatsData] = useState<AdminStats | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [adminOrdersData, setAdminOrdersData] = useState<AdminOrder[]>([]);
+  const [adminDepositsData, setAdminDepositsData] = useState<AdminDeposit[]>([]);
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
 
@@ -702,15 +709,24 @@ export default function NokosShopPage() {
     setAdminBusy(true);
     setAdminMsg(null);
     try {
-      const [st, us, or] = await Promise.all([
-        apiAdminStats(session.user.id),
+      const isOwn = session.user.role === "owner";
+      const [us, or] = await Promise.all([
         apiAdminListUsers(session.user.id),
         apiAdminOrders(session.user.id),
       ]);
-      if (st.ok && st.stats) setAdminStatsData(st.stats);
       if (us.ok && us.users) setAdminUsers(us.users);
       if (or.ok && or.orders) setAdminOrdersData(or.orders);
-      if (!st.ok) setAdminMsg(st.error || "Gagal memuat data admin.");
+      if (isOwn) {
+        const [st, dp] = await Promise.all([
+          apiAdminStats(session.user.id),
+          apiAdminDeposits(session.user.id),
+        ]);
+        if (st.ok && st.stats) setAdminStatsData(st.stats);
+        if (dp.ok && dp.deposits) setAdminDepositsData(dp.deposits);
+        if (!st.ok) setAdminMsg(st.error || "Gagal memuat statistik.");
+        if (!dp.ok) setAdminMsg(dp.error || "Gagal memuat deposit.");
+      }
+      if (!us.ok) setAdminMsg(us.error || "Gagal memuat data admin.");
     } catch (err: any) {
       setAdminMsg(err?.message || "Gagal memuat data admin.");
     } finally {
@@ -720,7 +736,7 @@ export default function NokosShopPage() {
 
   const openAdmin = () => {
     setAdminOpen(true);
-    setAdminTab("ringkasan");
+    setAdminTab(session?.user.role === "owner" ? "ringkasan" : "customer");
     loadAdminData();
   };
 
@@ -1268,10 +1284,19 @@ export default function NokosShopPage() {
             {/* tab bar */}
             <div className="flex flex-wrap gap-2 mb-4">
               {[
-                { id: "ringkasan" as const, label: "Ringkasan", icon: <BarChart3 className="w-4 h-4" /> },
-                { id: "customer" as const, label: "Customer", icon: <Users className="w-4 h-4" /> },
-                { id: "transaksi" as const, label: "Transaksi", icon: <History className="w-4 h-4" /> },
-                ...(isOwner ? ([{ id: "staff" as const, label: "Staff CS", icon: <UserCog className="w-4 h-4" /> }, { id: "server" as const, label: "Server", icon: <Server className="w-4 h-4" /> }] as const) : []),
+                ...(isOwner
+                  ? [
+                      { id: "ringkasan" as const, label: "Ringkasan", icon: <BarChart3 className="w-4 h-4" /> },
+                      { id: "customer" as const, label: "Customer", icon: <Users className="w-4 h-4" /> },
+                      { id: "transaksi" as const, label: "Transaksi", icon: <History className="w-4 h-4" /> },
+                      { id: "deposit" as const, label: "Deposit", icon: <QrCode className="w-4 h-4" /> },
+                      { id: "staff" as const, label: "Staff CS", icon: <UserCog className="w-4 h-4" /> },
+                      { id: "server" as const, label: "Server", icon: <Server className="w-4 h-4" /> },
+                    ]
+                  : [
+                      { id: "customer" as const, label: "Customer", icon: <Users className="w-4 h-4" /> },
+                      { id: "transaksi" as const, label: "Transaksi", icon: <History className="w-4 h-4" /> },
+                    ]),
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -1296,24 +1321,27 @@ export default function NokosShopPage() {
               </p>
             )}
 
-            {/* tab: ringkasan */}
-            {adminTab === "ringkasan" && (
+            {/* tab: ringkasan (owner) */}
+            {adminTab === "ringkasan" && isOwner && (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <StatCard icon={<Users className="w-5 h-5" />} number={String(adminStatsData?.customerCount ?? "-")} label="Customer" />
-                <StatCard icon={<Wallet className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.totalBalance ?? 0)}`} label="Total saldo customer" />
-                <StatCard icon={<History className="w-5 h-5" />} number={String(adminStatsData?.orderCount ?? "-")} label="Total order" />
-                <StatCard icon={<Timer className="w-5 h-5" />} number={String(adminStatsData?.activeOrderCount ?? "-")} label="Order aktif" />
-                <StatCard icon={<BarChart3 className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.soldTotal ?? 0)}`} label="Penjualan (tidak refund)" />
+                <StatCard icon={<Users className="w-5 h-5" />} number={String(adminStatsData?.customerCount ?? "-")} label="Customer terdaftar" />
+                <StatCard icon={<Wallet className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.depositTotal ?? 0)}`} label="Total deposit lunas" />
+                <StatCard icon={<QrCode className="w-5 h-5" />} number={String(adminStatsData?.depositPending ?? "-")} label="Deposit menunggu" />
+                <StatCard icon={<BarChart3 className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.soldTotal ?? 0)}`} label="Total transaksi berhasil" />
+                <StatCard icon={<RefreshCw className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.refundTotal ?? 0)}`} label="Total refund" />
+                <StatCard icon={<Wallet className="w-5 h-5" />} number={`Rp ${formatRupiah(adminStatsData?.totalBalance ?? 0)}`} label="Saldo customer sekarang" />
+                <StatCard icon={<History className="w-5 h-5" />} number={String(adminStatsData?.orderCount ?? "-")} label="Total order (semua status)" />
+                <StatCard icon={<Timer className="w-5 h-5" />} number={String(adminStatsData?.activeOrderCount ?? "-")} label="Order menunggu/OTP" />
                 <StatCard icon={<UserCog className="w-5 h-5" />} number={String(adminStatsData?.staffCount ?? "-")} label="Staff CS" />
-                <button onClick={() => { setAdminTab("customer"); loadAdminData(); }} className="col-span-2 sm:col-span-3 py-3 rounded-xl text-sm font-semibold border border-white/10 text-zinc-200 hover:bg-white/5 flex items-center justify-center gap-2">
-                  <Users className="w-4 h-4" /> Kelola saldo customer
+                <button onClick={() => { setAdminTab("customer"); }} className="col-span-2 sm:col-span-3 py-3 rounded-xl text-sm font-semibold border border-white/10 text-zinc-200 hover:bg-white/5 flex items-center justify-center gap-2">
+                  <Users className="w-4 h-4" /> Lihat daftar akun & kelola saldo
                 </button>
               </div>
             )}
 
             {/* tab: customer */}
             {adminTab === "customer" && (
-              <CustomerAdminTab
+              <CustomerAdminTabPanel
                 users={adminUsers}
                 busy={adminBusy}
                 onReload={loadAdminData}
@@ -1359,6 +1387,11 @@ export default function NokosShopPage() {
                   })
                 )}
               </div>
+            )}
+
+            {/* tab: deposit (owner) */}
+            {adminTab === "deposit" && isOwner && (
+              <AdminDepositTab deposits={adminDepositsData} />
             )}
 
             {/* tab: staff (owner) */}

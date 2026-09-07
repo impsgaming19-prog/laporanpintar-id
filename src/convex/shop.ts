@@ -607,6 +607,8 @@ export const loginCustomer = action({
     if (!user) {
       return { ok: false, error: "Email atau password salah." };
     }
+    // Catat waktu akses terakhir (untuk daftar akun di Panel Admin Owner).
+    await ctx.runMutation(I.wallet.touchLogin, { userId: user.id }).catch(() => {});
     return { ok: true, user };
   },
 });
@@ -648,6 +650,7 @@ export const depositCreate = action({
       customer_name: "Customer KAKO NOKOS",
       customer_email: "customer@kakonokos.local",
       description: `Deposit saldo KAKO NOKOS (${referenceId})`,
+      return_url: process.env.SITE_URL || "https://kakonokos.freebuff.app",
     };
     const { ok, status, json, text } = await fetchJson(`${base}/transaction/create`, {
       method: "POST",
@@ -879,12 +882,12 @@ export const deleteStaff = action({
   },
 });
 
-/** Statistik panel admin. */
+/** Statistik panel admin (khusus Owner — berisi total deposit & transaksi). */
 export const adminStats = action({
   args: { actorId: v.id("appUsers") },
   handler: async (ctx, args) => {
-    const actor = await staffActor(ctx, args.actorId);
-    if (!actor) return { ok: false, error: "Akses khusus Owner/CS." };
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
     const s = await ctx.runQuery(I.wallet.statsOverview, {});
     return { ok: true, stats: s };
   },
@@ -904,6 +907,8 @@ export const adminListUsers = action({
       role: u.role,
       balance: Math.max(0, Math.floor(Number(u.balance) || 0)),
       createdAt: u.createdAt,
+      createdBy: u.createdBy || "",
+      lastLoginAt: u.lastLoginAt || null,
     }));
     return { ok: true, users: list };
   },
@@ -924,6 +929,17 @@ export const adminAdjustBalance = action({
     if (Math.abs(delta) > 100_000_000) return { ok: false, error: "Nominal terlalu besar." };
     const res = await ctx.runMutation(I.wallet.adjustBalance, { userId: args.userId, delta });
     return res.ok ? { ok: true, balance: res.balance } : { ok: false, error: res.error || "Gagal ubah saldo." };
+  },
+});
+
+/** Riwayat deposit customer (khusus Owner) — isi saldo via QR. */
+export const adminDeposits = action({
+  args: { actorId: v.id("appUsers") },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    const rows = await ctx.runQuery(I.wallet.adminDepositsList, {});
+    return { ok: true, deposits: rows };
   },
 });
 

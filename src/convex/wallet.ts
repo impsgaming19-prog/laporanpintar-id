@@ -233,6 +233,17 @@ export const listOrders = internalQuery({
  * ADMIN / OWNER — dipanggil action di shop.ts SETELAH cek peran pemanggil
  * ===================================================================== */
 
+/** Catat waktu login terakhir (dipanggil action setelah verifikasi berhasil). */
+export const touchLogin = internalMutation({
+  args: { userId: v.id("appUsers") },
+  handler: async (ctx, args) => {
+    const u = await ctx.db.get(args.userId);
+    if (!u) return { ok: false };
+    await ctx.db.patch(u._id, { lastLoginAt: Date.now() });
+    return { ok: true };
+  },
+});
+
 /** Info peran pemanggil (owner / cs / customer). */
 export const actorInfo = internalQuery({
   args: { userId: v.id("appUsers") },
@@ -358,21 +369,58 @@ export const statsOverview = internalQuery({
   args: {},
   handler: async (ctx) => {
     const users = await ctx.db.query("appUsers").collect();
-    const orders = await ctx.db.query("nokosOrders").order("desc").take(200);
+    const orders = await ctx.db.query("nokosOrders").order("desc").take(300);
+    const deposits = await ctx.db.query("nokosDeposits").order("desc").take(300);
     const customers = users.filter((u) => u.role === "customer");
     const totalBalance = customers.reduce((s, u) => s + Math.floor(Number(u.balance) || 0), 0);
     const sold = orders.filter((o) => !["refunded", "failed"].includes(o.status));
     const soldTotal = sold.reduce((s, o) => s + Math.floor(o.sellPrice || 0), 0);
+    const paidDeps = deposits.filter((d) => d.status === "paid");
+    const depositTotal = paidDeps.reduce((s, d) => s + Math.floor(d.amount || 0), 0);
+    const refunded = orders.filter((o) => o.status === "refunded");
+    const refundTotal = refunded.reduce((s, o) => s + Math.floor(o.sellPrice || 0), 0);
+    const countByStatus: Record<string, number> = {};
+    for (const o of orders) countByStatus[o.status] = (countByStatus[o.status] || 0) + 1;
     return {
       userCount: users.length,
       customerCount: customers.length,
       staffCount: users.filter((u) => u.role === "cs").length,
       ownerCount: users.filter((u) => u.role === "owner").length,
       orderCount: orders.length,
-      activeOrderCount: orders.filter((o) => o.status === "ordered" || o.status === "otp").length,
+      activeOrderCount: (countByStatus.ordered || 0) + (countByStatus.otp || 0),
       soldTotal,
       totalBalance,
+      depositCount: paidDeps.length,
+      depositTotal,
+      depositPending: deposits.filter((d) => d.status === "pending").length,
+      refundCount: refunded.length,
+      refundTotal,
+      statusBreakdown: countByStatus,
     };
+  },
+});
+
+/** Riwayat deposit customer (owner) — isi saldo via QR. */
+export const adminDepositsList = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("nokosDeposits").order("desc").take(150);
+    const out: Array<Record<string, unknown>> = [];
+    for (const r of rows) {
+      const u = r.userId ? await ctx.db.get(r.userId) : null;
+      out.push({
+        id: r._id,
+        userId: r.userId,
+        username: u?.username || "",
+        fullName: u?.fullName || "",
+        referenceId: r.referenceId,
+        amount: r.amount,
+        status: r.status,
+        createdAt: r.createdAt,
+        paidAt: r.paidAt || null,
+      });
+    }
+    return out;
   },
 });
 
