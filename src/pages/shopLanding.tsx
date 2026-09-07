@@ -13,6 +13,8 @@ import {
   Timer,
   Loader2,
   UserPlus,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   apiListCountries,
@@ -330,6 +332,7 @@ function AuthModal({
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPass, setShowPass] = useState(false);
 
   useEffect(() => {
     setMode(initialMode);
@@ -445,14 +448,25 @@ function AuthModal({
         </label>
         <label className="block mb-3">
           <span className="text-[12px] text-zinc-400 mb-1 block">Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={mode === "login" ? "Password kamu" : "Minimal 4 karakter"}
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
-          />
+          <div className="relative">
+            <input
+              type={showPass ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "login" ? "Password kamu" : "Minimal 4 karakter"}
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-4 pr-11 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPass((v) => !v)}
+              tabIndex={-1}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
+              aria-label={showPass ? "Sembunyikan password" : "Lihat password"}
+            >
+              {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
         </label>
 
         {error && (
