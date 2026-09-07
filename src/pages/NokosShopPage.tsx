@@ -829,7 +829,20 @@ export default function NokosShopPage() {
   const role = roleMeta[session.user.role] || roleMeta.customer;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white selection:bg-red-500/30">
+    <div className="min-h-screen relative overflow-hidden bg-zinc-950 text-white selection:bg-red-500/30">
+      {/* ===== latar glow seperti landing ===== */}
+      <motion.div
+        className="pointer-events-none absolute -top-40 -left-32 w-[30rem] h-[30rem] rounded-full blur-3xl z-0"
+        style={{ backgroundColor: "rgba(225,6,0,0.18)" }}
+        animate={{ x: [0, 70, 0], y: [0, 40, 0], scale: [1, 1.15, 1] }}
+        transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="pointer-events-none absolute top-1/3 -right-36 w-[34rem] h-[34rem] rounded-full blur-3xl z-0"
+        style={{ backgroundColor: "rgba(0,230,118,0.12)" }}
+        animate={{ x: [0, -60, 0], y: [0, -50, 0], scale: [1.1, 0.95, 1.1] }}
+        transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+      />
       {adminHubOpen && session && isAdmin && (
         <AdminHub
           user={session.user}
@@ -851,8 +864,22 @@ export default function NokosShopPage() {
               <span className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0b0b0f]" style={{ backgroundColor: ACCENT }} />
             </div>
             <div className="min-w-0">
-              <p className="text-[15px] font-extrabold tracking-tight truncate">KAKO NOKOS</p>
-              <p className="text-[11px] text-zinc-400 tracking-wide truncate">Toko Nomor Online</p>
+              <motion.p
+                className="text-[16px] font-black tracking-tight truncate"
+                style={{
+                  backgroundImage: "linear-gradient(92deg, #ffffff 5%, #00e676 45%, #ff5f56 90%)",
+                  backgroundSize: "220% auto",
+                  backgroundClip: "text",
+                  WebkitBackgroundClip: "text",
+                  color: "transparent",
+                  WebkitTextFillColor: "transparent",
+                }}
+                animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+                transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+              >
+                KAKO NOKOS
+              </motion.p>
+              <p className="text-[10px] text-zinc-400 tracking-[0.18em] uppercase truncate">Toko Nomor Online</p>
             </div>
             {session.user.role !== "customer" && (
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${role.cls} ml-1`}>{role.label}</span>
@@ -891,7 +918,7 @@ export default function NokosShopPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-5 py-6">
+      <main className="relative z-10 max-w-6xl mx-auto px-5 py-6">
         {/* ================= HERO ================= */}
         <motion.div
           initial={{ opacity: 0, y: 12, scale: 0.99 }}
@@ -959,10 +986,33 @@ export default function NokosShopPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <StatCard icon={<Globe className="w-5 h-5" />} number={totalCountries == null ? "-" : String(totalCountries)} label="Negara (semua server)" />
-              <StatCard icon={<ShoppingCart className="w-5 h-5" />} number={String(services.length || "-")} label="Layanan tersedia" />
-              <StatCard icon={<Wallet className="w-5 h-5" />} number={`Rp ${formatRupiah(walletBalance ?? 0)}`} label="Saldo kamu" />
-              <StatCard icon={<ShieldCheck className="w-5 h-5" />} number="Aman" label="Gagal = saldo balik" />
+              {[
+                { icon: <Globe className="w-5 h-5" />, number: totalCountries == null ? "-" : String(totalCountries), label: "Negara (semua server)", tone: "green" as const },
+                { icon: <ShoppingCart className="w-5 h-5" />, number: String(services.length || "-"), label: "Layanan tersedia", tone: "red" as const },
+                { icon: <Wallet className="w-5 h-5" />, number: `Rp ${formatRupiah(walletBalance ?? 0)}`, label: "Saldo kamu", tone: "green" as const },
+                { icon: <ShieldCheck className="w-5 h-5" />, number: "Aman", label: "Gagal = saldo balik", tone: "red" as const },
+              ].map((c, i) => (
+                <motion.div
+                  key={c.label}
+                  initial={{ opacity: 0, y: 14, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ delay: 0.1 + i * 0.07, type: "spring", stiffness: 260, damping: 20 }}
+                  whileHover={{ y: -3, scale: 1.02 }}
+                  className="rounded-2xl border border-white/10 p-4 relative overflow-hidden backdrop-blur"
+                  style={{
+                    background: c.tone === "green" ? "linear-gradient(150deg, rgba(0,230,118,0.10), rgba(255,255,255,0.02))" : "linear-gradient(150deg, rgba(225,6,0,0.14), rgba(255,255,255,0.02))",
+                    boxShadow: c.tone === "green" ? "0 16px 40px -22px rgba(0,230,118,0.6), inset 0 1px 0 rgba(255,255,255,0.06)" : "0 16px 40px -22px rgba(225,6,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-2.5 border" style={c.tone === "green" ? { background: "rgba(0,230,118,0.14)", borderColor: "rgba(0,230,118,0.3)", color: ACCENT } : { background: "rgba(225,6,0,0.14)", borderColor: "rgba(225,6,0,0.3)", color: "#ff6b63" }}>
+                    {c.icon}
+                  </div>
+                  <p className="text-lg font-black truncate" style={{ color: c.tone === "green" ? ACCENT : "#ffffff", textShadow: c.tone === "green" ? "0 0 20px rgba(0,230,118,0.35)" : "none" }}>
+                    {c.number}
+                  </p>
+                  <p className="text-[11px] text-zinc-400 truncate mt-0.5">{c.label}</p>
+                </motion.div>
+              ))}
             </div>
           </div>
           </div>
