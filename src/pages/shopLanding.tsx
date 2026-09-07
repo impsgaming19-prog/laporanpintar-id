@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
@@ -15,6 +15,8 @@ import {
   UserPlus,
   Eye,
   EyeOff,
+  Sparkles,
+  ShoppingBag,
 } from "lucide-react";
 import {
   apiListCountries,
@@ -29,6 +31,11 @@ import {
 const RED = "#e10600";
 const DARK = "#0b0b0f";
 const ACCENT = "#00e676";
+const GOLD = "#ffc857";
+
+const GRAD_BRAND = "linear-gradient(92deg, #ffffff 5%, #00e676 45%, #ff5f56 90%)";
+const GRAD_EMBLEM = "linear-gradient(140deg, #ff3d2e 0%, #e10600 45%, #7a0a05 100%)";
+
 
 type ServerDef = {
   id: string;
@@ -78,6 +85,197 @@ const SERVER_LIST: ServerDef[] = [
   },
 ];
 
+/* ------- demo "pembelian terbaru" (sosial proof, non-transaksi nyata) ------- */
+const DEMO_BUYERS = [
+  { name: "R***", svc: "WhatsApp", cty: "Indonesia" },
+  { name: "A***", svc: "Telegram", cty: "Malaysia" },
+  { name: "F***", svc: "Facebook", cty: "Indonesia" },
+  { name: "D***", svc: "TikTok", cty: "Jepang" },
+  { name: "S***", svc: "Google", cty: "Singapura" },
+  { name: "M***", svc: "WhatsApp", cty: "India" },
+  { name: "N***", svc: "Instagram", cty: "Filipina" },
+  { name: "W***", svc: "Telegram", cty: "Thailand" },
+  { name: "I***", svc: "Shopee", cty: "Indonesia" },
+  { name: "B***", svc: "Twitter", cty: "Vietnam" },
+  { name: "E***", svc: "WhatsApp", cty: "Malaysia" },
+  { name: "T***", svc: "Facebook", cty: "Indonesia" },
+];
+const DEMO_PRICES = [1429, 1786, 2143, 2857, 3571, 4286, 5000, 6429, 7143, 9286, 10714];
+
+const fmtRp = (n: number) => n.toLocaleString("id-ID");
+
+/* =====================================================================
+ * LOGO 3D KAKO NOKOS (dipakai di navbar landing)
+ * ===================================================================== */
+function BrandLogo({ large = false }: { large?: boolean }) {
+  const box = large ? "w-12 h-12" : "w-9 h-9";
+  const radius = large ? "rounded-2xl" : "rounded-xl";
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative flex-shrink-0" style={{ perspective: 600 }}>
+        {/* glow di belakang emblem */}
+        <motion.div
+          className="absolute inset-0 rounded-full blur-lg"
+          style={{ background: "radial-gradient(circle, rgba(0,230,118,0.65) 0%, rgba(225,6,0,0.45) 70%, transparent 100%)" }}
+          animate={{ opacity: [0.55, 0.95, 0.55], scale: [1, 1.25, 1] }}
+          transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className={`relative ${box} ${radius} flex items-center justify-center shadow-2xl border border-white/25`}
+          style={{ background: GRAD_EMBLEM, boxShadow: "0 12px 30px -6px rgba(225,6,0,0.65), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -6px 12px rgba(0,0,0,0.35)" }}
+          whileHover={{ rotateY: 12, rotateX: -6, scale: 1.06 }}
+          transition={{ type: "spring", stiffness: 300, damping: 16 }}
+        >
+          <svg viewBox="0 0 24 24" className="w-5 h-5 text-white drop-shadow" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 12h2m16 0h2M8 12a4 4 0 0 1 4-4 4 4 0 0 1 4 4 4 4 0 0 1-4 4 4 4 0 0 1-4-4 4 4 0 0 1 4 4z" />
+          </svg>
+          <span className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full bg-[#00e676] border-2 border-[#0b0b0f]" />
+        </motion.div>
+      </div>
+      <div className="leading-tight">
+        <motion.p
+          className={large ? "text-lg font-black tracking-tight" : "text-[15px] font-extrabold tracking-tight"}
+          style={{
+            backgroundImage: GRAD_BRAND,
+            backgroundSize: "220% auto",
+            backgroundClip: "text",
+            WebkitBackgroundClip: "text",
+            color: "transparent",
+            WebkitTextFillColor: "transparent",
+          }}
+          animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+          transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+        >
+          KAKO NOKOS
+        </motion.p>
+        <p className="text-[11px] text-zinc-400 tracking-[0.18em] uppercase">
+          Toko Nomor Online
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** tombol solid (aksen hijau) dengan efek tekan 3D */
+function AccentButton({
+  children,
+  onClick,
+  className = "",
+  glow = true,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  className?: string;
+  glow?: boolean;
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      whileHover={{ y: -2, scale: 1.02 }}
+      whileTap={{ y: 2, scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+      className={`relative text-black font-bold hover:brightness-110 overflow-hidden ${className}`}
+      style={{
+        background: `linear-gradient(180deg, #7dffc4 0%, ${ACCENT} 45%, #00b25a 100%)`,
+        boxShadow: glow
+          ? "0 10px 24px -6px rgba(0,230,118,0.5), inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -3px 6px rgba(0,0,0,0.18)"
+          : "inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.2)",
+      }}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+/** tombol outline/netral dengan efek tekan */
+function GhostButton({
+  children,
+  onClick,
+  className = "",
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      whileHover={{ y: -1, scale: 1.01, backgroundColor: "rgba(255,255,255,0.07)" }}
+      whileTap={{ y: 1, scale: 0.97 }}
+      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+      className={`border border-white/20 hover:bg-white/5 ${className}`}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+/* ------- ticker "pembelian terbaru" (demo visual) ------- */
+function LivePurchaseStrip() {
+  const [idx, setIdx] = useState(0);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIdx((v) => (v + 1) % DEMO_BUYERS.length);
+      setStep((v) => v + 1);
+    }, 4200);
+    return () => clearInterval(id);
+  }, []);
+
+  const buyer = DEMO_BUYERS[idx];
+  const price = DEMO_PRICES[(step + idx * 3) % DEMO_PRICES.length];
+  const when =
+    step % 3 === 0 ? "baru saja" : step % 3 === 1 ? "1 mnt lalu" : "2 mnt lalu";
+
+  return (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 backdrop-blur px-4 py-3 relative overflow-hidden max-w-md">
+      {/* strip hijau berjalan di bawah */}
+      <motion.div
+        className="absolute bottom-0 left-0 h-[2px]"
+        style={{ background: "linear-gradient(90deg, transparent, #00e676, transparent)" }}
+        animate={{ width: ["0%", "100%"] }}
+        transition={{ duration: 4.2, repeat: Infinity, ease: "linear" }}
+      />
+      <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide mb-2">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+        </span>
+        <span className="text-emerald-300">PEMBELIAN TERBARU</span>
+        <span className="text-zinc-500 font-medium normal-case tracking-normal">(demo tampilan)</span>
+      </div>
+      <div className="min-h-[44px] flex items-center">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={idx}
+            initial={{ opacity: 0, x: -24, filter: "blur(3px)" }}
+            animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, x: 24, filter: "blur(3px)" }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="flex w-full items-center gap-3"
+          >
+            <span className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 border border-emerald-400/30"
+              style={{ background: "rgba(0,230,118,0.12)" }}>
+              <ShoppingBag className="w-4 h-4 text-emerald-300" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] text-zinc-200 truncate">
+                <b className="text-white">{buyer.name}</b> membeli nomor{" "}
+                <b style={{ color: ACCENT }}>{buyer.svc}</b> · {buyer.cty}
+              </p>
+              <p className="text-[11px] text-zinc-500">{when} · otomatis masuk ke riwayat</p>
+            </div>
+            <span className="text-[13px] font-black whitespace-nowrap" style={{ color: ACCENT }}>
+              +Rp {fmtRp(price)}
+            </span>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
 /* =====================================================================
  * LANDING PAGE (sebelum login) + modal masuk/daftar
  * ===================================================================== */
@@ -109,35 +307,37 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white selection:bg-red-500/30 relative overflow-hidden">
-      {/* glow dekoratif */}
-      <div className="pointer-events-none absolute -top-32 -left-24 w-96 h-96 rounded-full blur-3xl" style={{ backgroundColor: "rgba(225,6,0,0.22)" }} />
-      <div className="pointer-events-none absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full blur-3xl" style={{ backgroundColor: "rgba(0,230,118,0.10)" }} />
+      {/* ===== latar: orbs 3D bergerak pelan ===== */}
+      <motion.div
+        className="pointer-events-none absolute -top-40 -left-32 w-[30rem] h-[30rem] rounded-full blur-3xl"
+        style={{ backgroundColor: "rgba(225,6,0,0.28)" }}
+        animate={{ x: [0, 70, 0], y: [0, 40, 0], scale: [1, 1.15, 1] }}
+        transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="pointer-events-none absolute top-1/3 -right-36 w-[34rem] h-[34rem] rounded-full blur-3xl"
+        style={{ backgroundColor: "rgba(0,230,118,0.16)" }}
+        animate={{ x: [0, -60, 0], y: [0, -50, 0], scale: [1.1, 0.95, 1.1] }}
+        transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="pointer-events-none absolute bottom-0 left-1/3 w-72 h-72 rounded-full blur-3xl"
+        style={{ backgroundColor: "rgba(255,200,87,0.10)" }}
+        animate={{ y: [20, -30, 20] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+      />
 
       {/* ================= NAV ================= */}
       <header className="relative z-10 border-b border-white/10 bg-[#0b0b0f]/70 backdrop-blur-md sticky top-0">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/30">
-              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 12h2m16 0h2M8 12a4 4 0 0 1 4-4 4 4 0 0 1 4 4 4 4 0 0 1-4 4 4 4 0 0 1-4-4 4 4 0 0 1 4 4z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-[15px] font-extrabold tracking-tight">KAKO NOKOS</p>
-              <p className="text-[11px] text-zinc-400 tracking-wide">Toko Nomor Online</p>
-            </div>
-          </div>
+          <BrandLogo />
           <div className="flex items-center gap-2">
-            <button onClick={() => openAuth("login")} className="px-4 py-2 rounded-xl text-sm font-semibold border border-white/15 text-zinc-200 hover:bg-white/5">
+            <GhostButton onClick={() => openAuth("login")} className="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-200">
               Masuk
-            </button>
-            <button
-              onClick={() => openAuth("register")}
-              className="px-4 py-2 rounded-xl text-sm font-bold text-black hover:brightness-110"
-              style={{ backgroundColor: ACCENT }}
-            >
+            </GhostButton>
+            <AccentButton onClick={() => openAuth("register")} className="px-4 py-2 rounded-xl text-sm">
               Daftar
-            </button>
+            </AccentButton>
           </div>
         </div>
       </header>
@@ -146,101 +346,224 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
         {/* ================= HERO ================= */}
         <section className="max-w-6xl mx-auto px-5 pt-14 pb-10 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
           <div>
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-semibold border border-red-500/30 bg-red-500/10 text-red-300">
-              <Zap className="w-3.5 h-3.5" /> Nomor virtual sekali pakai
-            </span>
-            <h1 className="text-4xl md:text-5xl font-black mt-4 leading-[1.1] tracking-tight">
-              Verifikasi Akun <span style={{ color: ACCENT }}>Tanpa Ribet</span>,
+            <motion.span
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-semibold border border-red-500/30 bg-red-500/10 text-red-300"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Nomor virtual sekali pakai · LIVE dari server resmi
+            </motion.span>
+            <motion.h1
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.06 }}
+              className="text-4xl md:text-[3.4rem] font-black mt-4 leading-[1.08] tracking-tight"
+              style={{ textShadow: "0 10px 40px rgba(0,0,0,0.6)" }}
+            >
+              Verifikasi Akun{" "}
+              <motion.span
+                style={{
+                  backgroundImage: "linear-gradient(92deg, #00e676, #7dffc4 60%, #00e676)",
+                  backgroundSize: "200% auto",
+                  backgroundClip: "text",
+                  WebkitBackgroundClip: "text",
+                  color: "transparent",
+                  WebkitTextFillColor: "transparent",
+                }}
+                animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+                transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
+              >
+                Tanpa Ribet
+              </motion.span>
+              ,
               <br />
-              Harga <span style={{ color: RED }}>Jelas & Final</span>.
-            </h1>
-            <p className="text-zinc-400 text-[15px] mt-4 leading-relaxed max-w-lg">
+              Harga <span style={{ color: RED, textShadow: "0 0 26px rgba(225,6,0,0.45)" }}>Jelas & Final</span>.
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="text-zinc-400 text-[15px] mt-4 leading-relaxed max-w-lg"
+            >
               KAKO NOKOS menjual nomor virtual untuk verifikasi WhatsApp, Telegram, Facebook, Google, dan ratusan
               layanan lain — lintas negara. Data negara, layanan, stok, dan harga <b className="text-zinc-200">langsung dari server resmi</b>, bukan daftar tempelan.
-            </p>
-            <div className="flex flex-wrap gap-3 mt-6">
-              <button
+            </motion.p>
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.18 }}
+              className="flex flex-wrap gap-3 mt-6"
+            >
+              <AccentButton
                 onClick={() => openAuth("register")}
-                className="px-6 py-3.5 rounded-2xl text-black text-sm font-bold shadow-lg shadow-emerald-500/20 flex items-center gap-2 hover:brightness-110 active:scale-[0.99] transition-all"
-                style={{ backgroundColor: ACCENT }}
+                className="px-6 py-3.5 rounded-2xl text-sm flex items-center gap-2"
               >
                 Daftar Gratis — Isi Saldo Pertama <ArrowRight className="w-4 h-4" />
-              </button>
-              <button onClick={() => openAuth("login")} className="px-6 py-3.5 rounded-2xl text-white text-sm font-semibold border border-white/20 hover:bg-white/5 flex items-center gap-2">
+              </AccentButton>
+              <GhostButton
+                onClick={() => openAuth("login")}
+                className="px-6 py-3.5 rounded-2xl text-sm font-semibold text-white flex items-center gap-2"
+              >
                 <LogIn className="w-4 h-4" /> Saya sudah punya akun
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-3 mt-8 max-w-md">
-              <div>
-                <p className="text-2xl font-black" style={{ color: ACCENT }}>{totalCountries == null ? "…" : totalCountries}</p>
-                <p className="text-[11px] text-zinc-500">Negara (semua server)</p>
-              </div>
-              <div>
-                <p className="text-2xl font-black" style={{ color: ACCENT }}>24/7</p>
-                <p className="text-[11px] text-zinc-500">OTP dicek otomatis</p>
-              </div>
-              <div>
-                <p className="text-2xl font-black" style={{ color: ACCENT }}>0</p>
-                <p className="text-[11px] text-zinc-500">Biaya tersembunyi</p>
-              </div>
-            </div>
-          </div>
+              </GhostButton>
+            </motion.div>
 
-          {/* kartu mock */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-            className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 max-w-md mx-auto w-full">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-bold flex items-center gap-2"><Globe className="w-4 h-4 text-red-500" /> Pilih Server</p>
-              <span className="text-[11px] px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: ACCENT, color: DARK }}>LIVE</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {SERVER_LIST.slice(0, 3).map((s) => (
-                <span key={s.id} className="px-4 py-2 rounded-xl text-[13px] font-semibold bg-zinc-800 text-white border border-white/10">{s.label}</span>
-              ))}
-            </div>
-            <div className="mt-4 rounded-2xl bg-zinc-950/80 border border-white/10 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[12px] text-zinc-400">Negara terpopuler</span>
-                <span className="text-[11px] text-zinc-500">indonesia 🇮🇩</span>
-              </div>
+            {/* statistik hero */}
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.24 }}
+              className="grid grid-cols-3 gap-3 mt-7 max-w-md"
+            >
               {[
-                { name: "WhatsApp", price: "Rp 3.500", stok: "stok 412" },
-                { name: "Telegram", price: "Rp 2.100", stok: "stok 208" },
-                { name: "Facebook", price: "Rp 1.800", stok: "stok 96" },
+                {
+                  key: totalCountries == null ? "…" : String(totalCountries),
+                  label: "Negara (semua server)",
+                  color: ACCENT,
+                },
+                { key: "24/7", label: "OTP dicek otomatis", color: ACCENT },
+                { key: "0", label: "Biaya tersembunyi", color: RED },
               ].map((s) => (
-                <div key={s.name} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                  <span className="text-[13px] text-white font-medium">{s.name}</span>
-                  <span className="text-[12px] font-bold" style={{ color: ACCENT }}>{s.price} <span className="text-zinc-600 font-normal">• {s.stok}</span></span>
+                <div key={s.label}>
+                  <motion.p
+                    key={s.key}
+                    initial={{ scale: 1.35, opacity: 0.6 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 18 }}
+                    className="text-2xl font-black"
+                    style={{ color: s.color, textShadow: `0 0 22px ${s.color}55` }}
+                  >
+                    {s.key}
+                  </motion.p>
+                  <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">{s.label}</p>
                 </div>
               ))}
-            </div>
-            <div className="mt-3 flex items-center gap-2 text-[12px] text-zinc-400">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              Harga di layar = harga yang kamu bayar. Tidak ada markup rahasia.
-            </div>
+            </motion.div>
+
+            {/* ticker pembelian demo */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <LivePurchaseStrip />
+            </motion.div>
+          </div>
+
+          {/* kartu mock 3D + hover gerak */}
+          <motion.div
+            style={{ perspective: 1200, transformStyle: "preserve-3d" }}
+            initial={{ opacity: 0, y: 24, rotateY: -10, rotateX: 6 }}
+            animate={{ opacity: 1, y: 0, rotateY: -10, rotateX: 6 }}
+            whileHover={{ rotateY: 0, rotateX: 0, scale: 1.02 }}
+            transition={{ type: "spring", stiffness: 120, damping: 16 }}
+            className="mx-auto w-full max-w-md"
+          >
+            <motion.div
+              animate={{ y: [0, -9, 0] }}
+              transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
+              className="rounded-3xl border border-white/10 p-6 backdrop-blur"
+              style={{
+                background: "linear-gradient(160deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 50%, rgba(0,230,118,0.05))",
+                boxShadow: "0 30px 60px -20px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.04) inset",
+              }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm font-bold flex items-center gap-2"><Globe className="w-4 h-4 text-red-500" /> Pilih Server</p>
+                <motion.span
+                  className="text-[11px] px-2 py-0.5 rounded-full font-bold"
+                  style={{ backgroundColor: ACCENT, color: DARK, boxShadow: "0 0 16px rgba(0,230,118,0.6)" }}
+                  animate={{ boxShadow: ["0 0 10px rgba(0,230,118,0.35)", "0 0 22px rgba(0,230,118,0.8)", "0 0 10px rgba(0,230,118,0.35)"] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  LIVE
+                </motion.span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SERVER_LIST.slice(0, 3).map((s, i) => (
+                  <motion.span
+                    key={s.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 + i * 0.08 }}
+                    whileHover={{ y: -2, scale: 1.04 }}
+                    className="px-4 py-2 rounded-xl text-[13px] font-semibold bg-zinc-800 text-white border border-white/10 shadow-lg"
+                  >
+                    {s.label}
+                  </motion.span>
+                ))}
+              </div>
+              <div className="mt-4 rounded-2xl bg-zinc-950/80 border border-white/10 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[12px] text-zinc-400">Negara terpopuler</span>
+                  <span className="text-[11px] text-zinc-500">indonesia 🇮🇩</span>
+                </div>
+                {[
+                  { name: "WhatsApp", price: "Rp 1.429", stok: "stok 412" },
+                  { name: "Telegram", price: "Rp 3.571", stok: "stok 208" },
+                  { name: "Facebook", price: "Rp 1.786", stok: "stok 96" },
+                ].map((s) => (
+                  <motion.div
+                    key={s.name}
+                    whileHover={{ x: 4, backgroundColor: "rgba(255,255,255,0.04)" }}
+                    className="flex items-center justify-between py-2 border-b border-white/5 last:border-0 rounded-lg px-1 -mx-1 transition-colors cursor-default"
+                  >
+                    <span className="text-[13px] text-white font-medium">{s.name}</span>
+                    <span className="text-[12px] font-bold" style={{ color: ACCENT }}>
+                      {s.price} <span className="text-zinc-600 font-normal">• {s.stok}</span>
+                    </span>
+                  </motion.div>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-[12px] text-zinc-400">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                Harga di layar = harga yang kamu bayar. Tidak ada markup rahasia.
+              </div>
+            </motion.div>
           </motion.div>
         </section>
 
         {/* ================= CARA KERJA ================= */}
         <section className="max-w-6xl mx-auto px-5 py-10">
-          <h2 className="text-2xl md:text-3xl font-extrabold text-center">Gimana Cara Kerjanya?</h2>
-          <p className="text-zinc-500 text-sm text-center mt-2 max-w-xl mx-auto">
+          <motion.h2
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-60px" }}
+            className="text-2xl md:text-3xl font-extrabold text-center"
+          >
+            Gimana Cara Kerjanya?
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-60px" }}
+            className="text-zinc-500 text-sm text-center mt-2 max-w-xl mx-auto"
+          >
             Sistem <b className="text-white">isi saldo (deposit)</b> — bukan bayar per transaksi. Lebih aman buat kamu.
-          </p>
+          </motion.p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
             {[
               { icon: <Wallet className="w-6 h-6 text-red-500" />, step: "01", title: "Daftar & Isi Saldo", desc: "Buat akun gratis (email + password), lalu isi saldo lewat QR Paymentku. Saldo masuk otomatis begitu bayaran lunas." },
               { icon: <ShoppingCart className="w-6 h-6 text-red-500" />, step: "02", title: "Pilih & Beli Nomor", desc: "Pilih server, negara, dan layanan yang kamu butuhkan. Harga final langsung dipotong dari saldo — tidak ada biaya lain." },
               { icon: <PhoneIncoming className="w-6 h-6 text-red-500" />, step: "03", title: "OTP Otomatis Masuk", desc: "Kode OTP dicek otomatis sampai ketemu lalu tampil di riwayat. Gagal = saldo kembali otomatis." },
-            ].map((c) => (
-              <div key={c.step} className="rounded-3xl border border-white/10 bg-zinc-900/50 p-6 relative overflow-hidden">
+            ].map((c, i) => (
+              <motion.div
+                key={c.step}
+                initial={{ opacity: 0, y: 22 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }}
+                transition={{ delay: i * 0.08 }}
+                whileHover={{ y: -6, scale: 1.02 }}
+                className="rounded-3xl border border-white/10 bg-zinc-900/50 p-6 relative overflow-hidden"
+                style={{ boxShadow: "0 18px 40px -22px rgba(0,0,0,0.9)" }}
+              >
                 <span className="absolute -top-3 -right-1 text-[72px] font-black text-white/[0.04] select-none">{c.step}</span>
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: "rgba(225,6,0,0.15)" }}>
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: "linear-gradient(140deg, rgba(225,6,0,0.28), rgba(225,6,0,0.08))", border: "1px solid rgba(225,6,0,0.25)" }}>
                   {c.icon}
                 </div>
                 <p className="font-bold text-lg">{c.title}</p>
                 <p className="text-zinc-400 text-[13px] mt-2 leading-relaxed">{c.desc}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
         </section>
@@ -248,7 +571,13 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
         {/* ================= GARANSI & ATURAN ================= */}
         <section className="max-w-6xl mx-auto px-5 py-10">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/[0.04] p-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-60px" }}
+              className="rounded-3xl border border-emerald-500/25 p-6"
+              style={{ background: "linear-gradient(150deg, rgba(0,230,118,0.10), rgba(0,230,118,0.02))", boxShadow: "0 20px 50px -25px rgba(0,230,118,0.35), inset 0 0 40px rgba(0,230,118,0.04)" }}
+            >
               <h3 className="text-lg font-bold flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-400" /> Kamu Tidak Akan Rugi
               </h3>
@@ -257,8 +586,15 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
                 <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" /> Kalau nomor tak kunjung dapat OTP, kamu bisa <b>batalkan & refund</b> — saldo balik utuh.</li>
                 <li className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" /> Semua transaksi tercatat di <b>Riwayat</b> akun kamu.</li>
               </ul>
-            </div>
-            <div className="rounded-3xl border border-white/10 bg-zinc-900/50 p-6">
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-60px" }}
+              transition={{ delay: 0.08 }}
+              className="rounded-3xl border border-white/10 bg-zinc-900/50 p-6"
+              style={{ boxShadow: "0 20px 50px -25px rgba(0,0,0,0.9)" }}
+            >
               <h3 className="text-lg font-bold flex items-center gap-2">
                 <Timer className="w-5 h-5 text-amber-400" /> Aturan Batalkan & Refund
               </h3>
@@ -267,31 +603,68 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
                 <li className="flex gap-2"><span className="text-amber-400 font-bold flex-shrink-0">2.</span> Kalau <b>kode OTP sudah masuk</b>, order tidak bisa dibatalkan/direfund — nomor sudah terpakai.</li>
                 <li className="flex gap-2"><span className="text-amber-400 font-bold flex-shrink-0">3.</span> Refund selalu kembali ke <b>saldo akun</b>, siap dipakai beli lagi.</li>
               </ul>
-            </div>
+            </motion.div>
           </div>
         </section>
 
         {/* ================= CTA ================= */}
         <section className="max-w-6xl mx-auto px-5 py-12 text-center">
-          <div className="rounded-3xl p-10 md:p-14 relative overflow-hidden border border-white/10" style={{ background: "linear-gradient(135deg, rgba(225,6,0,0.16), rgba(11,11,15,0.6) 55%), #0b0b0f" }}>
-            <h2 className="text-3xl md:text-4xl font-black">Siap Verifikasi Akun Kamu?</h2>
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            whileInView={{ opacity: 1, y: 0, scale: 1 }}
+            viewport={{ once: true, margin: "-60px" }}
+            className="rounded-3xl p-10 md:p-14 relative overflow-hidden border border-white/10"
+            style={{ background: "linear-gradient(135deg, rgba(225,6,0,0.20), rgba(11,11,15,0.7) 55%), #0b0b0f", boxShadow: "0 40px 90px -40px rgba(225,6,0,0.5)" }}
+          >
+            {/* kilau berjalan di atas CTA */}
+            <motion.div
+              className="absolute inset-x-0 top-0 h-px"
+              style={{ background: "linear-gradient(90deg, transparent, #00e676, #e10600, transparent)" }}
+              animate={{ x: ["-100%", "100%"] }}
+              transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <h2 className="text-3xl md:text-4xl font-black">
+              Siap Verifikasi{" "}
+              <motion.span
+                style={{
+                  backgroundImage: GRAD_BRAND,
+                  backgroundSize: "220% auto",
+                  backgroundClip: "text",
+                  WebkitBackgroundClip: "text",
+                  color: "transparent",
+                  WebkitTextFillColor: "transparent",
+                }}
+                animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+              >
+                Akun Kamu?
+              </motion.span>
+            </h2>
             <p className="text-zinc-400 text-sm mt-3 max-w-lg mx-auto">
               Daftar gratis, isi saldo sekali, dan langsung bisa beli nomor virtual dari ratusan layanan lintas negara.
             </p>
             <div className="flex flex-wrap justify-center gap-3 mt-6">
-              <button onClick={() => openAuth("register")} className="px-7 py-3.5 rounded-2xl text-sm font-bold text-black hover:brightness-110" style={{ backgroundColor: ACCENT }}>
-                Daftar Sekarang — Gratis
-              </button>
-              <button onClick={() => openAuth("login")} className="px-7 py-3.5 rounded-2xl text-sm font-semibold border border-white/20 hover:bg-white/5">
+              <AccentButton
+                onClick={() => openAuth("register")}
+                className="px-7 py-3.5 rounded-2xl text-sm flex items-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" /> Daftar Sekarang — Gratis
+              </AccentButton>
+              <GhostButton
+                onClick={() => openAuth("login")}
+                className="px-7 py-3.5 rounded-2xl text-sm font-semibold text-white"
+              >
                 Masuk
-              </button>
+              </GhostButton>
             </div>
-          </div>
+          </motion.div>
         </section>
       </main>
 
       <footer className="relative z-10 border-t border-white/10 mt-6 py-6 text-center text-[12px] text-zinc-500">
-        <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
+        <p className="font-semibold tracking-wide" style={{ color: ACCENT }}>
+          KAKO NOKOS
+        </p>
         <p className="mt-1">Toko nomor virtual online — harga tampil = harga bayar. Pembayaran via QR Paymentku.</p>
       </footer>
 
@@ -384,9 +757,10 @@ function AuthModal({
       onClick={onClose}
     >
       <motion.div
-        initial={{ y: 60, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
+        initial={{ y: 60, opacity: 0, scale: 0.96 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: 60, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 26 }}
         className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -405,17 +779,18 @@ function AuthModal({
             { id: "login" as const, label: "Masuk" },
             { id: "register" as const, label: "Daftar" },
           ]).map((m) => (
-            <button
+            <motion.button
               key={m.id}
               onClick={() => {
                 setMode(m.id);
                 setError(null);
               }}
+              whileTap={{ scale: 0.95 }}
               className={`py-2 rounded-xl text-[13px] transition-all ${tabCls(mode === m.id)}`}
-              style={mode === m.id ? { backgroundColor: ACCENT } : {}}
+              style={mode === m.id ? { backgroundColor: ACCENT, boxShadow: "0 6px 16px -6px rgba(0,230,118,0.5)" } : {}}
             >
               {m.label}
-            </button>
+            </motion.button>
           ))}
         </div>
 
@@ -475,11 +850,16 @@ function AuthModal({
           </p>
         )}
 
-        <button
+        <motion.button
           onClick={submit}
           disabled={busy}
-          className="w-full py-3.5 rounded-xl text-sm font-bold text-black hover:brightness-110 disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg"
-          style={{ backgroundColor: ACCENT }}
+          whileTap={busy ? undefined : { scale: 0.96, y: 1 }}
+          whileHover={busy ? undefined : { y: -1 }}
+          className="w-full py-3.5 rounded-xl text-sm font-bold text-black hover:brightness-110 disabled:opacity-60 flex items-center justify-center gap-2"
+          style={{
+            background: "linear-gradient(180deg, #7dffc4 0%, #00e676 45%, #00b25a 100%)",
+            boxShadow: "0 12px 28px -8px rgba(0,230,118,0.55), inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -3px 6px rgba(0,0,0,0.18)",
+          }}
         >
           {busy ? (
             <>
@@ -494,7 +874,7 @@ function AuthModal({
               <UserPlus className="w-4 h-4" /> Daftar
             </>
           )}
-        </button>
+        </motion.button>
 
         <p className="text-[11px] text-zinc-500 text-center mt-4 leading-relaxed">
           Nomor virtual untuk verifikasi WhatsApp, Telegram, dan lainnya. Isi saldo lalu beli — harga yang tampil
