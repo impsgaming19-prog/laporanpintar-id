@@ -356,6 +356,23 @@ export async function apiShopDeleteStaff(actorId: string, userId: string): Promi
   return callAction("shop:deleteStaff", { actorId, userId });
 }
 
+/** Owner mengganti nama/email/password akunnya sendiri (cek password lama). */
+export async function apiOwnerUpdateLogin(opts: {
+  userId: string;
+  currentPassword: string;
+  newUsername?: string;
+  newPassword?: string;
+  newFullName?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  return callAction("shop:ownerUpdateLogin", {
+    userId: opts.userId,
+    currentPassword: opts.currentPassword,
+    newUsername: opts.newUsername ?? undefined,
+    newPassword: opts.newPassword ?? undefined,
+    newFullName: opts.newFullName ?? undefined,
+  });
+}
+
 export type AdminUser = {
   id: string;
   username: string;

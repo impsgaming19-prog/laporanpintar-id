@@ -77,6 +77,7 @@ import {
   CustomerAdminTab as CustomerAdminTabPanel,
 } from "@/pages/adminBits";
 import { LandingPage as ShopLanding } from "@/pages/shopLanding";
+import { AdminHub } from "@/pages/adminHub";
 
 /* ---------- brand ---------- */
 const RED = "#e10600";
@@ -209,6 +210,7 @@ export default function NokosShopPage() {
 
   /* ---------- panel admin (owner/cs) ---------- */
   const [adminOpen, setAdminOpen] = useState(false);
+  const [adminHubOpen, setAdminHubOpen] = useState(false);
   const [adminTab, setAdminTab] = useState<"ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "server">("ringkasan");
   const [adminStatsData, setAdminStatsData] = useState<AdminStats | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -736,9 +738,7 @@ export default function NokosShopPage() {
   };
 
   const openAdmin = () => {
-    setAdminOpen(true);
-    setAdminTab(session?.user.role === "owner" ? "ringkasan" : "customer");
-    loadAdminData();
+    setAdminHubOpen(true);
   };
 
   /* ---------- aksi admin ---------- */
@@ -830,6 +830,13 @@ export default function NokosShopPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white selection:bg-red-500/30">
+      {adminHubOpen && session && isAdmin && (
+        <AdminHub
+          user={session.user}
+          onClose={() => setAdminHubOpen(false)}
+          onUserUpdated={(u) => applySession(u)}
+        />
+      )}
       {/* ================= HEADER ================= */}
       <header className="border-b border-white/10 bg-[#0b0b0f]/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-3">
