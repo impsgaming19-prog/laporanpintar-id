@@ -62,9 +62,22 @@ function envKey(...names: string[]): string {
   return "";
 }
 
-/** Server KirimKode yang dipakai akun (dari env, default api1). */
+/** Server KirimKode yang dipakai akun (dari env, default api4 — server tempat
+ *  stok layanan akun ini terbaca saat diuji langsung ke API). */
 function kirimkodeServer(): string {
-  return (process.env.NOKOS_KIRIMKODE_SERVER || "api1").trim() || "api1";
+  return (process.env.NOKOS_KIRIMKODE_SERVER || "api4").trim() || "api4";
+}
+
+/** Urutan server yang dicoba untuk daftar negara/layanan: pilihan env dulu,
+ *  lalu api1..api10 (beberapa node kadang gagal sementara — lewati, coba yang lain). */
+function kirimkodeServerCandidates(): string[] {
+  const chosen = kirimkodeServer();
+  const out: string[] = [chosen];
+  for (let i = 1; i <= 10; i++) {
+    const s = `api${i}`;
+    if (!out.includes(s)) out.push(s);
+  }
+  return out;
 }
 
 function makeReferenceId(prefix = "KAKO"): string {
@@ -321,7 +334,28 @@ export const listCountries = action({
       return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
     }
     // KirimKode butuh param server (api1..api10) untuk daftar negara/layanan.
-    const path = cfg.auth === "header" ? `/countries?server=${kirimkodeServer()}` : "/negara.php";
+    if (cfg.auth === "header") {
+      let lastErr = "";
+      for (const server of kirimkodeServerCandidates()) {
+        const { url, headers } = withAuth(cfg, `${cfg.base}/countries?server=${server}`);
+        const { ok, status, json, text } = await fetchJson(url, { headers });
+        if (!ok || (json && json.success === false)) {
+          lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
+          continue;
+        }
+        const data = (json && json.data) || [];
+        const countries = Array.isArray(data)
+          ? data.map((c: any) => ({
+              id: c.id ?? c.id_negara ?? null,
+              name: c.name ?? c.nama_negara ?? c.country ?? String(c.id ?? ""),
+              code: c.code ?? c.kode ?? null,
+            }))
+          : [];
+        return { ok: true, provider: cfg.label, countries, raw: json };
+      }
+      return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
+    }
+    const path = "/negara.php";
     const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
     const { ok, status, json, text } = await fetchJson(url, { headers });
     if (!ok) {
@@ -385,17 +419,32 @@ export const listServices = action({
     if (!cfg) {
       return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
     }
-    const path = cfg.auth === "header" ? "/services" : "/layanan.php";
-    const paramName = cfg.auth === "header" ? "country" : "negara";
-    const serverQuery = cfg.auth === "header" ? `&server=${kirimkodeServer()}` : "";
-    const { url, headers } = withAuth(
-      cfg,
-      `${cfg.base}${path}?${paramName}=${encodeURIComponent(String(args.country))}${serverQuery}`
-    );
+    const countryEnc = encodeURIComponent(String(args.country));
+    if (cfg.auth === "header") {
+      let lastErr = "";
+      for (const server of kirimkodeServerCandidates()) {
+        const { url, headers } = withAuth(cfg, `${cfg.base}/services?country=${countryEnc}&server=${server}`);
+        const { ok, status, json, text } = await fetchJson(url, { headers });
+        if (!ok || (json && json.success === false)) {
+          lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
+          continue;
+        }
+        const data = (json && json.data) || [];
+        const services = flattenServices(Array.isArray(data) ? data : []);
+        if (services.length === 0) {
+          lastErr = `${cfg.label} (${server}) tidak mengembalikan layanan untuk negara ini.`;
+          continue;
+        }
+        return { ok: true, provider: cfg.label, services, raw: json };
+      }
+      return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
+    }
+    const { url, headers } = withAuth(cfg, `${cfg.base}/layanan.php?negara=${countryEnc}`);
     const { ok, status, json, text } = await fetchJson(url, { headers });
     if (!ok) {
       return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
-    }    const data = (json && json.data) || json || {};
+    }
+    const data = (json && json.data) || json || {};
     const services = flattenServices(data);
     return { ok: true, provider: cfg.label, services, raw: json };
   },
@@ -439,7 +488,7 @@ export const createNumberOrder = action({
     let err: { ok: false; error: string } | null = null;
 
     if (cfg.auth === "header") {
-      const server = (process.env.NOKOS_KIRIMKODE_SERVER || "api1").trim() || "api1";
+      const server = (process.env.NOKOS_KIRIMKODE_SERVER || "api4").trim() || "api4";
       const body: Record<string, unknown> = {
         server,
         country,

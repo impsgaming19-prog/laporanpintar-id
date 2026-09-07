@@ -97,6 +97,12 @@ async function callAction<T = unknown>(path: string, args: Record<string, unknow
     throw new Error(msg || `Backend menjawab HTTP ${res.status}`);
   }
 
+  // Respons sukses HTTP action Convex dibungkus envelope { status: "success", value: ... }.
+  // Hasil aslinya ada di `value` — kalau kode membaca `result`, hasilnya selalu undefined
+  // dan halaman menampilkan error palsu walau backend sehat. Ambil `value` dulu.
+  if (payload && typeof payload === "object" && payload.status === "success" && "value" in payload) {
+    return payload.value as T;
+  }
   return (payload?.result ?? payload ?? {}) as T;
 }
 

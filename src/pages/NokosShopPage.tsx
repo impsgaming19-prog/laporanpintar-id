@@ -1140,6 +1140,7 @@ export default function NokosShopPage() {
       <footer className="border-t border-white/10 mt-12 py-6 text-center text-[12px] text-zinc-500">
         <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
         <p className="mt-1">Harga final = harga server + 30%. Pembayaran QR via Paymentku.</p>
+        <p className="mt-2 text-[10px] font-mono text-zinc-600">backend: kako-nokos / glorious-ladybug-353</p>
       </footer>
     </div>
   );
