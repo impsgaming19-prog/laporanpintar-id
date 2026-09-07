@@ -163,23 +163,34 @@ export default function NokosShopPage() {
 
     const load = async () => {
       setLoadingData(true);
-      try {
-        const list = await apiListCountries(server.provider);
-        if (cancelled) return;
-        if (list.length === 0) {
-          setDataError("Server tidak mengembalikan daftar negara (kosong).");
+      // Coba otomatis beberapa kali: kalau server baru saja diaktifkan,
+      // permintaan pertama bisa gagal sesaat — jangan langsung menyerah.
+      let lastErr: any = null;
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          const list = await apiListCountries(server.provider);
+          if (cancelled) return;
+          if (list.length === 0) {
+            if (!cancelled) setLoadingData(false);
+            setDataError("Server tidak mengembalikan daftar negara (kosong).");
+            return;
+          }
+          setCountries(list);
+          const first = list.find((c) => c.id != null) || list[0];
+          setSelectedCountryId(first.id);
+          if (!cancelled) setLoadingData(false);
           return;
+        } catch (err: any) {
+          lastErr = err;
+          if (!cancelled && attempt < 2) {
+            await new Promise((r) => setTimeout(r, 2500));
+          }
         }
-        setCountries(list);
-        const first = list.find((c) => c.id != null) || list[0];
-        setSelectedCountryId(first.id);
-      } catch (err: any) {
-        if (!cancelled) {
-          setDataError(err?.message || "Gagal terhubung ke server provider.");
-        }
-      } finally {
-        if (!cancelled) setLoadingData(false);
       }
+      if (!cancelled && lastErr) {
+        setDataError(lastErr?.message || "Gagal terhubung ke server provider.");
+      }
+      if (!cancelled) setLoadingData(false);
     };
     load();
     return () => {
@@ -198,19 +209,29 @@ export default function NokosShopPage() {
     setLoadingData(true);
 
     const load = async () => {
-      try {
-        const list = await apiListServices(server.provider, selectedCountryId);
-        if (cancelled) return;
-        setServices(list);
-        if (list.length > 0) {
-          const first = list[0];
-          setSelectedServiceId(first.service ?? first.id);
+      let lastErr: any = null;
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          const list = await apiListServices(server.provider, selectedCountryId);
+          if (cancelled) return;
+          setServices(list);
+          if (list.length > 0) {
+            const first = list[0];
+            setSelectedServiceId(first.service ?? first.id);
+          }
+          if (!cancelled) setLoadingData(false);
+          return;
+        } catch (err: any) {
+          lastErr = err;
+          if (!cancelled && attempt < 2) {
+            await new Promise((r) => setTimeout(r, 2500));
+          }
         }
-      } catch (err: any) {
-        if (!cancelled) setDataError(err?.message || "Gagal mengambil daftar layanan.");
-      } finally {
-        if (!cancelled) setLoadingData(false);
       }
+      if (!cancelled && lastErr) {
+        setDataError(lastErr?.message || "Gagal mengambil daftar layanan.");
+      }
+      if (!cancelled) setLoadingData(false);
     };
     load();
     return () => {
