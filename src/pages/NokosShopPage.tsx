@@ -841,10 +841,14 @@ export default function NokosShopPage() {
       <header className="border-b border-white/10 bg-[#0b0b0f]/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/30 flex-shrink-0">
-              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center border border-white/25 flex-shrink-0 relative"
+              style={{ background: "linear-gradient(140deg, #ff3d2e 0%, #e10600 45%, #7a0a05 100%)", boxShadow: "0 10px 24px -8px rgba(225,6,0,0.7), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -4px 8px rgba(0,0,0,0.3)" }}
+            >
+              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white drop-shadow" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M2 12h2m16 0h2M8 12a4 4 0 0 1 4-4 4 4 0 0 1 4 4 4 4 0 0 1-4 4 4 4 0 0 1-4-4 4 4 0 0 1 4 4z" />
               </svg>
+              <span className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0b0b0f]" style={{ backgroundColor: ACCENT }} />
             </div>
             <div className="min-w-0">
               <p className="text-[15px] font-extrabold tracking-tight truncate">KAKO NOKOS</p>
@@ -890,29 +894,67 @@ export default function NokosShopPage() {
       <main className="max-w-6xl mx-auto px-5 py-6">
         {/* ================= HERO ================= */}
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 md:p-8"
+          initial={{ opacity: 0, y: 12, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 22 }}
+          className="relative overflow-hidden rounded-3xl border border-white/10 p-6 md:p-8"
+          style={{
+            background: "linear-gradient(150deg, rgba(0,230,118,0.08), rgba(255,255,255,0.02) 45%, rgba(225,6,0,0.07))",
+            boxShadow: "0 30px 70px -35px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.06)",
+          }}
         >
+          <div className="pointer-events-none absolute -top-28 -right-24 w-80 h-80 rounded-full blur-3xl" style={{ background: "radial-gradient(circle, rgba(0,230,118,0.18), transparent 70%)" }} />
+          <div className="pointer-events-none absolute -bottom-32 -left-20 w-80 h-80 rounded-full blur-3xl" style={{ background: "radial-gradient(circle, rgba(225,6,0,0.16), transparent 70%)" }} />
+          <div className="relative">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
-              <p className="text-[13px] uppercase tracking-widest text-red-500 font-semibold">
-                Halo, {session.user.fullName}
-              </p>
-              <h1 className="text-3xl md:text-4xl font-extrabold mt-2 leading-tight">
-                Verifikasi Akun <span style={{ color: ACCENT }}>Tanpa Ribet</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border border-emerald-500/30 text-emerald-300 bg-emerald-500/10 mb-3">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                </span>
+                Aman & Aktif
+              </span>
+              <p className="text-[12px] uppercase tracking-[0.16em] text-zinc-500 font-bold">Halo, {session.user.fullName} 👋</p>
+              <h1 className="text-3xl md:text-4xl font-extrabold mt-1.5 leading-tight" style={{ textShadow: "0 8px 30px rgba(0,0,0,0.5)" }}>
+                Verifikasi Akun{" "}
+                <motion.span
+                  style={{
+                    backgroundImage: "linear-gradient(92deg, #00e676, #7dffc4 60%, #00e676)",
+                    backgroundSize: "200% auto",
+                    backgroundClip: "text",
+                    WebkitBackgroundClip: "text",
+                    color: "transparent",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                  animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+                  transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  Tanpa Ribet
+                </motion.span>
               </h1>
               <p className="text-zinc-400 text-sm mt-3 max-w-xl">
                 Nomor virtual untuk verifikasi WhatsApp, Telegram, Facebook, dan lainnya. Isi saldo sekali —
                 setiap pembelian dipotong otomatis dari saldo kamu.
               </p>
               <div className="flex flex-wrap gap-3 mt-5">
-                <a href="#beli" className="px-5 py-3 rounded-xl text-black text-sm font-bold shadow-lg flex items-center gap-2" style={{ backgroundColor: ACCENT }}>
+                <motion.a
+                  href="#beli"
+                  whileHover={{ y: -2, scale: 1.02 }}
+                  whileTap={{ y: 1, scale: 0.96 }}
+                  className="px-5 py-3 rounded-xl text-black text-sm font-bold flex items-center gap-2"
+                  style={{ background: "linear-gradient(180deg,#7dffc4,#00e676 45%,#00b25a)", boxShadow: "0 12px 26px -10px rgba(0,230,118,0.7), inset 0 1px 0 rgba(255,255,255,0.6)" }}
+                >
                   Beli Nomor <ArrowRightCircle className="w-4 h-4" />
-                </a>
-                <button onClick={() => setDepositOpen(true)} className="px-5 py-3 rounded-xl text-white text-sm font-medium border border-white/20 flex items-center gap-2">
+                </motion.a>
+                <motion.button
+                  onClick={() => setDepositOpen(true)}
+                  whileHover={{ y: -1, scale: 1.01 }}
+                  whileTap={{ y: 1, scale: 0.97 }}
+                  className="px-5 py-3 rounded-xl text-white text-sm font-medium border border-white/20 flex items-center gap-2"
+                >
                   <Wallet className="w-4 h-4" /> Isi Saldo
-                </button>
+                </motion.button>
               </div>
             </div>
 
@@ -923,6 +965,7 @@ export default function NokosShopPage() {
               <StatCard icon={<ShieldCheck className="w-5 h-5" />} number="Aman" label="Gagal = saldo balik" />
             </div>
           </div>
+          </div>
         </motion.div>
 
         {/* ================= KARTU INFO ALUR ================= */}
@@ -931,28 +974,37 @@ export default function NokosShopPage() {
             { icon: <Zap className="w-5 h-5 text-red-500" />, title: "1. Isi Saldo", desc: "Bayar QR sekali, saldo masuk otomatis ke akun kamu. Tidak ada biaya tersembunyi." },
             { icon: <ShieldCheck className="w-5 h-5 text-red-500" />, title: "2. Pilih & Beli", desc: "Pilih server, negara, dan layanan. Harga dipotong dari saldo — harga yang tampil itulah yang dibayar." },
             { icon: <PhoneIncoming className="w-5 h-5 text-red-500" />, title: "3. OTP Masuk", desc: "Kode OTP dicek otomatis sampai masuk. Kalau order gagal, saldo dikembalikan otomatis." },
-          ].map((item) => (
-            <div key={item.title} className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 flex gap-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(225,6,0,0.18)" }}>
+          ].map((item, i) => (
+            <motion.div
+              key={item.title}
+              initial={{ opacity: 0, y: 14 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-40px" }}
+              transition={{ delay: i * 0.07 }}
+              whileHover={{ y: -3, scale: 1.015 }}
+              className="rounded-2xl border border-white/10 p-4 flex gap-3 relative overflow-hidden"
+              style={{ background: "linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))", boxShadow: "0 16px 40px -24px rgba(0,0,0,0.9)" }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border border-red-500/25" style={{ background: "linear-gradient(140deg, rgba(225,6,0,0.30), rgba(225,6,0,0.08))" }}>
                 {item.icon}
               </div>
               <div>
                 <p className="text-sm font-semibold text-white">{item.title}</p>
                 <p className="text-[12px] text-zinc-400 mt-1 leading-relaxed">{item.desc}</p>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
 
         {/* ================= ATURAN CANCEL/REFUND ================= */}
-        <div className="mt-6 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-amber-500/10">
+        <div className="mt-6 rounded-2xl border border-amber-500/20 p-4 flex items-start gap-3" style={{ background: "linear-gradient(135deg, rgba(251,191,36,0.09), rgba(255,255,255,0.01))", boxShadow: "0 14px 34px -26px rgba(251,191,36,0.5)" }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border border-amber-500/25 bg-amber-500/10">
             <Timer className="w-5 h-5 text-amber-400" />
           </div>
           <div className="text-[13px] text-zinc-300 leading-relaxed">
-            <p className="font-semibold text-white text-sm mb-1">Aturan Batalkan & Refund</p>
-            Order bisa dibatalkan/direfund <b>minimal 2 menit</b> setelah pembelian, dan <b>tidak bisa</b> jika
-            kode OTP sudah masuk (nomor sudah terpakai). Refund dikembalikan otomatis ke saldo kamu.
+            <p className="font-semibold text-white text-sm mb-1 flex items-center gap-2">Aturan Batalkan & Refund</p>
+            Order bisa dibatalkan/direfund <b className="text-white">minimal 2 menit</b> setelah pembelian, dan{" "}
+            <b className="text-white">tidak bisa</b> jika kode OTP sudah masuk (nomor sudah terpakai). Refund dikembalikan otomatis ke saldo kamu.
           </div>
         </div>
 
@@ -974,15 +1026,26 @@ export default function NokosShopPage() {
               {visibleServers.map((s) => {
                 const active = server?.id === s.id;
                 return (
-                  <button
+                  <motion.button
                     key={s.id}
                     onClick={() => setSelectedServerId(s.id)}
-                    className={`rounded-2xl border text-left p-4 transition-all ${
-                      active
-                        ? "border-red-600 bg-red-600/10 shadow-lg shadow-red-600/15"
-                        : "border-white/10 bg-zinc-900/40 hover:border-white/20"
+                    whileHover={{ y: -3 }}
+                    whileTap={{ scale: 0.97 }}
+                    className={`rounded-2xl border text-left p-4 transition-colors relative overflow-hidden ${
+                      active ? "border-transparent" : "border-white/10 bg-zinc-900/40 hover:border-white/20"
                     }`}
+                    style={
+                      active
+                        ? {
+                            background: "linear-gradient(150deg, rgba(225,6,0,0.20), rgba(225,6,0,0.04))",
+                            boxShadow: "0 18px 45px -18px rgba(225,6,0,0.6), inset 0 0 0 1px rgba(225,6,0,0.6)",
+                          }
+                        : {}
+                    }
                   >
+                    {active && (
+                      <span className="absolute -top-6 -right-6 w-16 h-16 rounded-full blur-2xl" style={{ background: "radial-gradient(circle, rgba(225,6,0,0.4), transparent 70%)" }} />
+                    )}
                     <div className="flex items-center justify-between mb-2 gap-2">
                       <span className="font-semibold text-white">{s.label}</span>
                       {s.badge && (
@@ -993,7 +1056,12 @@ export default function NokosShopPage() {
                     </div>
                     <p className="text-[12px] text-zinc-400 mb-2">{s.providerLabel}</p>
                     <p className="text-[12px] text-zinc-400 leading-relaxed">{s.description}</p>
-                  </button>
+                    {active && (
+                      <span className="inline-flex items-center gap-1 mt-2 text-[11px] font-bold" style={{ color: ACCENT }}>
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Dipilih
+                      </span>
+                    )}
+                  </motion.button>
                 );
               })}
             </div>
@@ -1062,9 +1130,13 @@ export default function NokosShopPage() {
                                 key={key}
                                 onClick={() => setSelectedCountryId(c.id)}
                                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
-                                  active ? "text-white shadow-md" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                                  active ? "text-white font-bold" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
                                 }`}
-                                style={active ? { backgroundColor: RED } : {}}
+                                style={
+                                  active
+                                    ? { background: "linear-gradient(150deg,#ff3d2e,#e10600 60%,#8f0a04)", boxShadow: "0 8px 18px -8px rgba(225,6,0,0.8), inset 0 1px 0 rgba(255,255,255,0.25)" }
+                                    : {}
+                                }
                               >
                                 {c.name}
                               </button>
@@ -1143,9 +1215,15 @@ export default function NokosShopPage() {
         {/* ================= RINGKASAN + BELI ================= */}
         {server && (
           <motion.div
-            className="mt-8 rounded-2xl overflow-hidden border shadow-xl shadow-red-600/20"
-            style={{ backgroundColor: DARK, borderColor: RED }}
+            className="mt-8 relative overflow-hidden rounded-2xl border shadow-2xl"
+            style={{ borderColor: "rgba(225,6,0,0.45)", background: "linear-gradient(160deg, rgba(225,6,0,0.12), #0b0b0f 45%)", boxShadow: "0 30px 80px -40px rgba(225,6,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)" }}
           >
+            <motion.div
+              className="absolute inset-x-0 top-0 h-px"
+              style={{ background: "linear-gradient(90deg, transparent, #ff5f56, #00e676, transparent)" }}
+              animate={{ x: ["-100%", "100%"] }}
+              transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
+            />
             <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-white/10">
               <div className="p-5 text-center">
                 <p className="text-[11px] uppercase tracking-widest text-zinc-400">Server</p>
@@ -1170,16 +1248,23 @@ export default function NokosShopPage() {
             </div>
 
             <div className="px-5 pb-5">
-              <button
+              <motion.button
                 onClick={handleBuy}
                 disabled={!selectedService || loadingData}
-                className={`w-full py-4 rounded-xl text-base font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                  !selectedService ? "bg-zinc-700 text-zinc-500" : "bg-white text-black hover:brightness-95 active:scale-[0.99]"
+                whileTap={!selectedService ? undefined : { scale: 0.98, y: 1 }}
+                whileHover={!selectedService ? undefined : { y: -2 }}
+                className={`w-full py-4 rounded-xl text-base font-black transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  !selectedService ? "bg-zinc-700 text-zinc-500" : "text-black"
                 }`}
+                style={
+                  selectedService
+                    ? { background: "linear-gradient(180deg,#ffffff,#e4e4e4)", boxShadow: "0 20px 44px -16px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.12)" }
+                    : {}
+                }
               >
                 <QrCode className="w-5 h-5" /> Beli — Potong Saldo Rp {formatRupiah(sellPrice)}
                 <ArrowRight className="w-4 h-4" />
-              </button>
+              </motion.button>
               <p className="text-[12px] text-zinc-400 text-center mt-2">
                 Saldo kamu: <b style={{ color: ACCENT }}>Rp {formatRupiah(walletBalance ?? 0)}</b> — kalau kurang, isi saldo dulu. Gagal = saldo kembali otomatis.
               </p>
