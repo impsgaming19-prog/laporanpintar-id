@@ -110,11 +110,16 @@ async function fetchJson(url: string, init?: RequestInit): Promise<{ ok: boolean
   return { ok: res.ok, status: res.status, json, text };
 }
 
-/** Harga jual = harga provider + 30% (default, bisa diatur NOKOS_MARKUP_PCT). */
+/**
+ * Harga jual = harga provider dibagi (1 - margin), dengan margin = % dari
+ * HARGA JUAL (default 30, bisa diatur NOKOS_MARKUP_PCT).
+ * Contoh: modal Rp 1.000, margin 30% -> jual = 1.000 / 0,7 = Rp 1.429,
+ * keuntungan Rp 429 = 30% dari harga jual.
+ */
 function computeSellPrice(providerPrice: number): number {
   const base = Math.max(0, Math.floor(Number(providerPrice) || 0));
-  const pct = Math.max(0, Number(process.env.NOKOS_MARKUP_PCT) || 30);
-  return Math.max(0, Math.round(base * (1 + pct / 100)));
+  const pct = Math.min(95, Math.max(0, Number(process.env.NOKOS_MARKUP_PCT) || 30));
+  return Math.max(0, Math.round(base / (1 - pct / 100)));
 }
 
 function extractErrorMessage(json: any, text: string, fallback: string): string {

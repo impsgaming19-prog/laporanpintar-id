@@ -307,10 +307,14 @@ export async function apiShopBuyWithBalance(opts: {
   });
 }
 
-/** Harga jual = harga provider + 30% (harus sama dengan hitungan backend). */
+/**
+ * Harga jual = harga provider / (1 - 0,30), jadi keuntungan = 30% dari
+ * HARGA JUAL (bukan dari harga provider). Harus sama dengan hitungan backend
+ * (NOKOS_MARKUP_PCT = 30 -> 1 - 0,30 = 0,7).
+ */
 export function computeSellPrice(providerPrice: number): number {
   const base = Math.max(0, Math.floor(Number(providerPrice) || 0));
-  return Math.max(0, Math.round(base * 1.3));
+  return Math.max(0, Math.round(base / 0.7));
 }
 
 /* =====================================================================
