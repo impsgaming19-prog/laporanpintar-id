@@ -411,6 +411,7 @@ export type AdminStats = {
   orderCount: number;
   activeOrderCount: number;
   soldTotal: number;
+  profitGross?: number;
   totalBalance: number;
   depositCount: number;
   depositTotal: number;
@@ -419,6 +420,36 @@ export type AdminStats = {
   refundTotal: number;
   statusBreakdown?: Record<string, number>;
 };
+
+export type ProviderStatusRow = {
+  key: string;
+  label: string;
+  configured: boolean;
+  balance: number | null;
+  error?: string;
+};
+
+export type ShopConfig = { feePct: number; siteName?: string };
+
+/** Baca pengaturan publik toko (fee Paymentku dll). */
+export async function apiShopGetConfig(): Promise<{ ok: boolean; config?: ShopConfig; error?: string }> {
+  return callAction("otpWatch:getShopConfig", {});
+}
+
+/** Owner menyimpan fee Paymentku (persen). */
+export async function apiShopSetConfig(
+  actorId: string,
+  feePct: number
+): Promise<{ ok: boolean; feePct?: number; error?: string }> {
+  return callAction("otpWatch:setShopConfig", { actorId, feePct });
+}
+
+/** Cek saldo provider (khusus Owner). */
+export async function apiProviderMonitor(
+  actorId: string
+): Promise<{ ok: boolean; providers?: ProviderStatusRow[]; checkedAt?: number; error?: string }> {
+  return callAction("otpWatch:providerMonitor", { actorId });
+}
 
 /** Statistik panel admin. */
 export async function apiAdminStats(actorId: string): Promise<{ ok: boolean; stats?: AdminStats; error?: string }> {

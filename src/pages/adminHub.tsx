@@ -23,6 +23,7 @@ import {
   Headset,
   X,
   AlertTriangle,
+  TrendingUp,
 } from "lucide-react";
 import {
   apiAdminAdjustBalance,
@@ -34,7 +35,9 @@ import {
   apiOwnerUpdateLogin,
   apiShopCreateStaff,
   apiShopDeleteStaff,
+  apiShopGetConfig,
   apiShopGetSettings,
+  apiShopSetConfig,
   apiShopSetServerEnabled,
   type AdminDeposit,
   type AdminOrder,
@@ -42,6 +45,7 @@ import {
   type AdminUser,
   type ShopUser,
 } from "@/lib/convexApi";
+import { OwnerInsights } from "./ownerInsights";
 
 /* ---------- brand ---------- */
 const RED = "#e10600";
@@ -89,7 +93,7 @@ const SERVER_ROWS = [
   { id: "jasav4", label: "JasaOTP v4", provider: "Ditznesia API v2", badge: "Baru", desc: "Server tambahan Ditznesia v2 (aktif bila kunci terisi)." },
 ];
 
-type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "server" | "akun";
+type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "server" | "laporan" | "akun";
 
 function Chip({ children, cls }: { children: ReactNode; cls?: string }) {
   return (
@@ -151,6 +155,7 @@ export function AdminHub({
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [deposits, setDeposits] = useState<AdminDeposit[]>([]);
   const [serverMap, setServerMap] = useState<Record<string, boolean>>({});
+  const [feeStr, setFeeStr] = useState<string>("");
 
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
@@ -182,14 +187,16 @@ export function AdminHub({
       if (!us.ok) flash("err", us.error || "Gagal memuat customer.");
       if (!or.ok) flash("err", or.error || "Gagal memuat transaksi.");
       if (isOwner) {
-        const [st, dp, sv] = await Promise.all([
+        const [st, dp, sv, gc] = await Promise.all([
           apiAdminStats(actorId),
           apiAdminDeposits(actorId),
           apiShopGetSettings().catch(() => ({ ok: false as const })),
+          apiShopGetConfig().catch(() => ({ ok: false as const })),
         ]);
         if (st.ok && st.stats) setStats(st.stats);
         if (dp.ok && dp.deposits) setDeposits(dp.deposits);
         if (sv.ok && sv.servers) setServerMap(sv.servers);
+        if (gc.ok && gc.config) setFeeStr(String(gc.config.feePct ?? 0));
         if (!st.ok) flash("err", st.error || "Gagal memuat statistik.");
         if (!dp.ok) flash("err", dp.error || "Gagal memuat deposit.");
       }
@@ -252,7 +259,7 @@ export function AdminHub({
     .filter((d) => d.status !== "paid")
     .reduce((s, d) => s + (d.amount || 0), 0);
 
-  const soldStatuses = ["active", "otp", "done"];
+  const soldStatuses = ["ordered", "active", "otp", "done"];
   const orderStats = useMemo(() => {
     let sold = 0;
     let refunded = 0;
@@ -327,6 +334,21 @@ export function AdminHub({
     }
   };
 
+  const saveFee = async () => {
+    const v = Math.round((Number(String(feeStr).replace(",", ".")) || 0) * 100) / 100;
+    if (!Number.isFinite(v) || v < 0 || v > 10) {
+      flash("err", "Fee harus angka antara 0–10 persen (contoh: 0,7).");
+      return;
+    }
+    const res = await apiShopSetConfig(actorId, v).catch(() => null);
+    if (res?.ok) {
+      setFeeStr(String(res.feePct ?? v));
+      flash("ok", `Fee Paymentku disimpan ${res.feePct ?? v}%. Untung bersih di bawah sudah dihitung ulang.`);
+    } else {
+      flash("err", res?.error || "Gagal menyimpan fee.");
+    }
+  };
+
   const saveOwnerAccount = async () => {
     if (!af.curPass) {
       flash("err", "Masukkan password lama untuk verifikasi.");
@@ -366,6 +388,7 @@ export function AdminHub({
     { id: "deposit", label: "Deposit", icon: <QrCode className="w-4 h-4" />, ownerOnly: true },
     { id: "staff", label: "Staff CS", icon: <Headset className="w-4 h-4" />, ownerOnly: true },
     { id: "server", label: "Server", icon: <ServerIcon className="w-4 h-4" />, ownerOnly: true },
+    { id: "laporan", label: "Laporan & Monitoring", icon: <TrendingUp className="w-4 h-4" />, ownerOnly: true },
     { id: "akun", label: "Akun Owner", icon: <UserCog className="w-4 h-4" />, ownerOnly: true },
   ];
   const visibleTabs = tabs.filter((t) => isOwner || !t.ownerOnly);
@@ -391,6 +414,17 @@ export function AdminHub({
       </button>
     </div>
   );
+
+  /* ---------- hitung untung bersih (setelah fee Paymentku) ---------- */
+  const feePctNum = Math.min(10, Math.max(0, Number(String(feeStr).replace(",", ".")) || 0));
+  const grossProfitNum =
+    stats?.profitGross ??
+    orders.reduce(
+      (s, o) => (soldStatuses.includes(o.status) ? s + ((o.sellPrice || 0) - (o.providerPrice || 0)) : s),
+      0
+    );
+  const feeEst = Math.round((depositPaidTotal * feePctNum) / 100);
+  const netProfitNum = Math.max(0, grossProfitNum - feeEst);
 
   return (
     <>
@@ -507,12 +541,43 @@ export function AdminHub({
                   <StatCard icon={<BarChart3 className="w-5 h-5" />} value={fmtRp(depositPendingTotal)} label="Nominal deposit pending" />
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4">
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4 space-y-3">
                   <p className="text-[13px] text-zinc-400 leading-relaxed">
-                    <b className="text-white">Catatan margin:</b> harga jual = harga provider ÷ 0,7, jadi setiap Rp 100 yang dibayar customer,
-                    ±Rp 30 adalah keuntunganmu (sisanya biaya nomor ke provider). Estimasi di atas dihitung dari penjualan berstatus
-                    aktif/OTP/selesai.
+                    <b className="text-white">Catatan margin:</b> harga jual = harga provider ÷ 0,7 — setiap Rp 100 yang dibayar
+                    customer, ±Rp 30 adalah untungmu (sisanya biaya nomor ke provider). Estimasi dihitung dari penjualan berstatus
+                    ordered/aktif/OTP/selesai.
                   </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="block">
+                      <span className="text-[11px] text-zinc-500 mb-1 block">Fee Paymentku (persen dari deposit masuk)</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={feeStr}
+                          onChange={(e) => setFeeStr(e.target.value)}
+                          placeholder="cth: 0,7"
+                          inputMode="decimal"
+                          className="w-28 rounded-xl bg-zinc-800 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
+                        />
+                        <button
+                          onClick={saveFee}
+                          disabled={loading}
+                          className="px-3.5 py-2 rounded-xl text-[12px] font-bold text-black disabled:opacity-50"
+                          style={{ background: ACCENT }}
+                        >
+                          Simpan fee
+                        </button>
+                      </div>
+                    </label>
+                    <span className="text-[11px] text-zinc-500 pb-2">
+                      Isi persentase potongan Paymentku (misal 0,7) supaya estimasi untung bersih di bawah akurat.
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1 border-t border-white/5">
+                    <StatCard icon={<Crown className="w-5 h-5" />} value={fmtRp(grossProfitNum)} label="Untung kotor (margin order)" />
+                    <StatCard icon={<QrCode className="w-5 h-5" />} value={`− ${fmtRp(feeEst)}`} label={`Estimasi fee Paymentku (${feePctNum}% × deposit)`} />
+                    <StatCard icon={<Wallet className="w-5 h-5" />} value={fmtRp(netProfitNum)} label="Untung bersih (setelah fee)" accent />
+                    <StatCard icon={<ReceiptText className="w-5 h-5" />} value={fmtRp(stats?.refundTotal ?? orderStats.refunded)} label="Total refund (pengurang)" />
+                  </div>
                 </div>
 
                 {/* aktivitas customer terakhir */}
@@ -940,6 +1005,9 @@ export function AdminHub({
                 </div>
               </div>
             )}
+
+            {/* ---- LAPORAN & MONITORING ---- */}
+            {tab === "laporan" && isOwner && <OwnerInsights actorId={actorId} orders={orders} deposits={deposits} />}
 
             {/* ---- AKUN OWNER ---- */}
             {tab === "akun" && isOwner && (

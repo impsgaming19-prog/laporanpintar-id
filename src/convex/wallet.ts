@@ -369,12 +369,14 @@ export const statsOverview = internalQuery({
   args: {},
   handler: async (ctx) => {
     const users = await ctx.db.query("appUsers").collect();
-    const orders = await ctx.db.query("nokosOrders").order("desc").take(300);
-    const deposits = await ctx.db.query("nokosDeposits").order("desc").take(300);
+    const orders = await ctx.db.query("nokosOrders").order("desc").take(1000);
+    const deposits = await ctx.db.query("nokosDeposits").order("desc").take(500);
     const customers = users.filter((u) => u.role === "customer");
     const totalBalance = customers.reduce((s, u) => s + Math.floor(Number(u.balance) || 0), 0);
     const sold = orders.filter((o) => !["refunded", "failed"].includes(o.status));
     const soldTotal = sold.reduce((s, o) => s + Math.floor(o.sellPrice || 0), 0);
+    // Untung kotor per order = harga jual - harga provider (margin ±30% dari jual).
+    const profitGross = sold.reduce((s, o) => s + (Math.floor(o.sellPrice || 0) - Math.floor(o.providerPrice || 0)), 0);
     const paidDeps = deposits.filter((d) => d.status === "paid");
     const depositTotal = paidDeps.reduce((s, d) => s + Math.floor(d.amount || 0), 0);
     const refunded = orders.filter((o) => o.status === "refunded");
@@ -389,6 +391,7 @@ export const statsOverview = internalQuery({
       orderCount: orders.length,
       activeOrderCount: (countByStatus.ordered || 0) + (countByStatus.otp || 0),
       soldTotal,
+      profitGross,
       totalBalance,
       depositCount: paidDeps.length,
       depositTotal,
@@ -404,7 +407,7 @@ export const statsOverview = internalQuery({
 export const adminDepositsList = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const rows = await ctx.db.query("nokosDeposits").order("desc").take(150);
+    const rows = await ctx.db.query("nokosDeposits").order("desc").take(500);
     const out: Array<Record<string, unknown>> = [];
     for (const r of rows) {
       const u = r.userId ? await ctx.db.get(r.userId) : null;
@@ -428,7 +431,7 @@ export const adminDepositsList = internalQuery({
 export const adminOrdersList = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const rows = await ctx.db.query("nokosOrders").order("desc").take(150);
+    const rows = await ctx.db.query("nokosOrders").order("desc").take(500);
     const out: Array<Record<string, unknown>> = [];
     for (const r of rows) {
       const u = r.userId ? await ctx.db.get(r.userId) : null;

@@ -773,6 +773,17 @@ export const buyWithBalance = action({
       providerPrice,
     });
 
+    // #5 — cek OTP otomatis di latar belakang sampai masuk (±10 menit),
+    // jalan terus walau customer menutup halaman.
+    try {
+      await ctx.scheduler.runAfter(20_000, I.otpWatch.watchOtp, {
+        orderId: String(order.orderId),
+        attempts: 0,
+      });
+    } catch {
+      /* jadwal gagal — halaman customer tetap bisa cek manual */
+    }
+
     return {
       ok: true,
       orderId: String(order.orderId),

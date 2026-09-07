@@ -17,6 +17,7 @@ import {
   EyeOff,
   Sparkles,
   ShoppingBag,
+  ChevronDown,
 } from "lucide-react";
 import {
   apiListCountries,
@@ -605,6 +606,91 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
               </ul>
             </motion.div>
           </div>
+        </section>
+
+        {/* ================= FAQ & KEBIJAKAN ================= */}
+        <section className="max-w-6xl mx-auto px-5 py-10">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl md:text-3xl font-black">
+              Tanya Jawab{" "}
+              <motion.span
+                style={{
+                  backgroundImage: GRAD_BRAND,
+                  backgroundSize: "220% auto",
+                  backgroundClip: "text",
+                  WebkitBackgroundClip: "text",
+                  color: "transparent",
+                  WebkitTextFillColor: "transparent",
+                }}
+                animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+              >
+                & Aturan
+              </motion.span>
+            </h2>
+            <p className="text-zinc-400 text-sm mt-2">Hal yang sering ditanyakan pembeli — biar tenang sebelum transaksi.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[
+              {
+                q: "Apakah harga di website sudah final?",
+                a: "Ya. Harga yang tampil adalah harga yang kamu bayar (sudah termasuk layanan & biaya operasional). Tidak ada biaya tambahan diam-diam. Refund juga memakai harga yang sama persis.",
+              },
+              {
+                q: "Berapa lama nomor & OTP sampai?",
+                a: "Umumnya 1–2 menit setelah order dibuat. Sistem kami mengecek OTP ke server otomatis setiap ±20 detik sampai kodenya masuk (±10 menit), jadi kamu tidak perlu terus-terusan membuka halaman.",
+              },
+              {
+                q: "Kalau OTP tidak kunjung masuk, bagaimana?",
+                a: "Kalau sampai batas waktu tidak ada OTP, sistem membatalkan order dan mengembalikan saldo kamu otomatis ke akun — tidak ada yang hilang.",
+              },
+              {
+                q: "Kapan saya bisa refund / batalkan order?",
+                a: "Minimal 2 menit setelah order dibuat (untuk mencegah penyalahgunaan). Kalau kode OTP sudah masuk, order tidak bisa dibatalkan/direfund karena nomor sudah terpakai.",
+              },
+              {
+                q: "Bagaimana cara isi saldo?",
+                a: "Login → klik Isi Saldo → pilih nominal → bayar lewat QRIS Paymentku → saldo masuk otomatis ke akun dalam beberapa detik setelah pembayaran lunas.",
+              },
+              {
+                q: "Apakah data & saldo saya aman?",
+                a: "Password disimpan hanya di server (tidak pernah tampil di halaman atau dibagikan), semua transaksi tercatat di Riwayat akun, dan saldo hanya bisa dipakai di akunmu sendiri.",
+              },
+              {
+                q: "Kenapa ada server/layanan yang tidak muncul?",
+                a: "Kadang server provider sedang gangguan, stok habis, atau dimatikan sementara oleh admin. Coba pilih server lain atau buka lagi beberapa menit kemudian.",
+              },
+              {
+                q: "Beli nomor untuk apa saja?",
+                a: "Untuk menerima kode OTP verifikasi dari berbagai layanan (WhatsApp, Telegram, aplikasi, marketplace, dan lainnya) lintas negara — tergantung layanan yang tersedia di server.",
+              },
+            ].map((f, i) => (
+              <details
+                key={i}
+                className="group rounded-2xl border border-white/10 bg-zinc-900/50 overflow-hidden transition-colors hover:border-white/20"
+              >
+                <summary className="list-none px-5 py-4 cursor-pointer flex items-center gap-3 select-none">
+                  <span
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black flex-shrink-0"
+                    style={{ background: "rgba(225,6,0,0.14)", color: "#ff6b63", border: "1px solid rgba(225,6,0,0.25)" }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="font-semibold text-[14px] flex-1">{f.q}</span>
+                  <motion.span
+                    className="text-zinc-500 shrink-0"
+                    animate={{ rotate: 0 }}
+                  >
+                    <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" />
+                  </motion.span>
+                </summary>
+                <p className="px-5 pb-5 pl-[68px] text-[13px] text-zinc-400 leading-relaxed">{f.a}</p>
+              </details>
+            ))}
+          </div>
+          <p className="text-center text-[12px] text-zinc-600 mt-6">
+            Butuh bantuan? Hubungi Customer Service kami setelah login — bantuan cepat & ramah.
+          </p>
         </section>
 
         {/* ================= CTA ================= */}
