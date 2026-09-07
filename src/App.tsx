@@ -22,7 +22,7 @@ import GalleryPage from "@/pages/GalleryPage";
 import OwnerPage from "@/pages/OwnerPage";
 import NokosShopPage from "@/pages/NokosShopPage";
 
-const convex = new ConvexReactClient("https://adamant-hedgehog-160.convex.cloud");
+const convex = new ConvexReactClient("https://glorious-ladybug-353.convex.cloud");
 
 function AppContent() {
   const { isAuthenticated, user } = useAuth();

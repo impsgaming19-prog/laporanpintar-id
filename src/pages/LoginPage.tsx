@@ -24,7 +24,7 @@ export default function LoginPage() {
     setBioRegistered(hasCredential());
   }, []);
 
-  const CONVEX_URL = "https://adamant-hedgehog-160.convex.cloud";
+  const CONVEX_URL = "https://glorious-ladybug-353.convex.cloud";
 
   const verifyConvexUser = async (u: string, p: string): Promise<{ id: string; username: string; fullName: string; role: string } | null> => {
     try {
@@ -78,7 +78,7 @@ export default function LoginPage() {
             // Use Convex query to verify and get real ID
             const convexResult = await new Promise<{ id: string; username: string; fullName: string; role: string } | null>((resolve) => {
               // We'll use a direct fetch to Convex for fingerprint login
-              const convexUrl = "https://adamant-hedgehog-160.convex.cloud";
+              const convexUrl = "https://glorious-ladybug-353.convex.cloud";
               fetch(`${convexUrl}/api/query`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

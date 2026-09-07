@@ -12,6 +12,7 @@ import type * as callSignals from "../callSignals.js";
 import type * as chat from "../chat.js";
 import type * as fcm from "../fcm.js";
 import type * as fcmActions from "../fcmActions.js";
+import type * as shop from "../shop.js";
 import type * as users from "../users.js";
 
 import type {
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   chat: typeof chat;
   fcm: typeof fcm;
   fcmActions: typeof fcmActions;
+  shop: typeof shop;
   users: typeof users;
 }>;
 
