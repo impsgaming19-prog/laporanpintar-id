@@ -18,6 +18,7 @@ import {
   Sparkles,
   ShoppingBag,
   ChevronDown,
+  Gift,
 } from "lucide-react";
 import {
   apiListCountries,
@@ -789,6 +790,7 @@ function AuthModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [refCode, setRefCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPass, setShowPass] = useState(false);
@@ -810,7 +812,7 @@ function AuthModal({
     setBusy(true);
     try {
       if (mode === "register") {
-        const reg = await apiShopRegister({ email, password, fullName });
+        const reg = await apiShopRegister({ email, password, fullName, refCode: refCode.trim() || undefined });
         if (!reg.success) {
           setError(reg.error || "Gagal mendaftar.");
           return;
@@ -886,15 +888,34 @@ function AuthModal({
         </p>
 
         {mode !== "login" && (
-          <label className="block mb-3">
-            <span className="text-[12px] text-zinc-400 mb-1 block">Nama (opsional)</span>
-            <input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Nama kamu"
-              className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
-            />
-          </label>
+          <>
+            <label className="block mb-3">
+              <span className="text-[12px] text-zinc-400 mb-1 block">Nama (opsional)</span>
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Nama kamu"
+                className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+              />
+            </label>
+            <label className="block mb-3">
+              <span className="text-[12px] text-zinc-400 mb-1 block">Kode undangan teman (opsional)</span>
+              <input
+                value={refCode}
+                onChange={(e) => setRefCode(e.target.value.toUpperCase())}
+                placeholder="cth: A7B3K9QP"
+                autoComplete="off"
+                className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none uppercase"
+              />
+            </label>
+            <p className="text-[11px] text-emerald-300/90 leading-relaxed mb-4 flex gap-1.5 -mt-1">
+              <Gift className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                Didaftarkan pakai kode undangan? Setelah <b>deposit pertamamu ≥ Rp 10.000</b>, kamu & temanmu
+                masing-masing dapat <b>bonus Rp 5.000</b>.
+              </span>
+            </p>
+          </>
         )}
         <label className="block mb-3">
           <span className="text-[12px] text-zinc-400 mb-1 block">Email</span>

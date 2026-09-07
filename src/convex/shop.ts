@@ -585,18 +585,20 @@ export const createNumberOrder = action({
  * beli dipotong dari saldo, gagal otomatis refund ke saldo)
  * ===================================================================== */
 
-/** Daftar akun customer sendiri (email = username). */
+/** Daftar akun customer sendiri (email = username, opsional kode undangan teman). */
 export const registerCustomer = action({
   args: {
     email: v.string(),
     password: v.string(),
     fullName: v.optional(v.string()),
+    refCode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return ctx.runMutation(I.wallet.registerCustomer, {
       email: args.email,
       password: args.password,
       fullName: args.fullName ?? undefined,
+      refCode: args.refCode ?? undefined,
     });
   },
 });

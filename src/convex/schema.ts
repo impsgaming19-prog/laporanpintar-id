@@ -12,6 +12,12 @@ export default defineSchema({
     createdAt: v.number(),
     balance: v.optional(v.number()), // saldo customer (Rupiah)
     lastLoginAt: v.optional(v.number()),
+    // #3 referral: kode undangan + siapa yang mengundang + kapan bonus diberikan
+    refCode: v.optional(v.string()),
+    referredBy: v.optional(v.string()),
+    referralBonusAt: v.optional(v.number()),
+    // #2 kode promo/voucher: daftar kode yang sudah pernah dipakai akun ini
+    usedCodes: v.optional(v.array(v.string())),
   })
     .index("by_username", ["username"]),
 

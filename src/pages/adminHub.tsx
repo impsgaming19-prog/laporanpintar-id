@@ -24,6 +24,8 @@ import {
   X,
   AlertTriangle,
   TrendingUp,
+  Ticket,
+  Gift,
 } from "lucide-react";
 import {
   apiAdminAdjustBalance,
@@ -37,12 +39,16 @@ import {
   apiShopDeleteStaff,
   apiShopGetConfig,
   apiShopGetSettings,
+  apiPromoCreate,
+  apiPromoDelete,
+  apiPromoList,
   apiShopSetConfig,
   apiShopSetServerEnabled,
   type AdminDeposit,
   type AdminOrder,
   type AdminStats,
   type AdminUser,
+  type PromoEntry,
   type ShopUser,
 } from "@/lib/convexApi";
 import { OwnerInsights } from "./ownerInsights";
@@ -93,7 +99,7 @@ const SERVER_ROWS = [
   { id: "jasav4", label: "JasaOTP v4", provider: "Ditznesia API v2", badge: "Baru", desc: "Server tambahan Ditznesia v2 (aktif bila kunci terisi)." },
 ];
 
-type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "server" | "laporan" | "akun";
+type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "promo" | "server" | "laporan" | "akun";
 
 function Chip({ children, cls }: { children: ReactNode; cls?: string }) {
   return (
@@ -156,6 +162,9 @@ export function AdminHub({
   const [deposits, setDeposits] = useState<AdminDeposit[]>([]);
   const [serverMap, setServerMap] = useState<Record<string, boolean>>({});
   const [feeStr, setFeeStr] = useState<string>("");
+  const [promos, setPromos] = useState<PromoEntry[]>([]);
+  const [pf, setPf] = useState({ code: "", nominal: "", kuota: "" });
+  const [promoDel, setPromoDel] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
@@ -199,6 +208,8 @@ export function AdminHub({
         if (gc.ok && gc.config) setFeeStr(String(gc.config.feePct ?? 0));
         if (!st.ok) flash("err", st.error || "Gagal memuat statistik.");
         if (!dp.ok) flash("err", dp.error || "Gagal memuat deposit.");
+        const pl = await apiPromoList(actorId).catch(() => ({ ok: false as const }));
+        if (pl.ok && pl.promos) setPromos(pl.promos);
       }
     } catch (err: any) {
       flash("err", err?.message || "Gagal memuat data.");
@@ -349,6 +360,39 @@ export function AdminHub({
     }
   };
 
+  const createPromo = async () => {
+    const code = pf.code.trim().toUpperCase();
+    const nominal = Math.round(Number(pf.nominal));
+    const kuota = Math.max(1, Math.round(Number(pf.kuota)) || 1);
+    if (code.length < 4 || code.length > 16 || /[^A-Z0-9]/.test(code)) {
+      flash("err", "Kode 4–16 huruf/angka tanpa spasi (cth: KAKO10RB).");
+      return;
+    }
+    if (!Number.isFinite(nominal) || nominal < 1000) {
+      flash("err", "Nominal minimal Rp 1.000.");
+      return;
+    }
+    const res = await apiPromoCreate(actorId, code, nominal, kuota).catch(() => null);
+    if (res?.ok) {
+      flash("ok", `Kode ${code} dibuat (Rp ${fmtRp(nominal)} × ${kuota} pemakaian). Bagikan ke customer!`);
+      setPf({ code: "", nominal: "", kuota: "" });
+      reload();
+    } else {
+      flash("err", res?.error || "Gagal membuat kode.");
+    }
+  };
+
+  const deletePromo = async (code: string) => {
+    setPromoDel(null);
+    const res = await apiPromoDelete(actorId, code).catch(() => null);
+    if (res?.ok) {
+      flash("ok", `Kode ${code} dihapus.`);
+      reload();
+    } else {
+      flash("err", res?.error || "Gagal menghapus kode.");
+    }
+  };
+
   const saveOwnerAccount = async () => {
     if (!af.curPass) {
       flash("err", "Masukkan password lama untuk verifikasi.");
@@ -387,6 +431,7 @@ export function AdminHub({
     { id: "transaksi", label: "Transaksi", icon: <ReceiptText className="w-4 h-4" /> },
     { id: "deposit", label: "Deposit", icon: <QrCode className="w-4 h-4" />, ownerOnly: true },
     { id: "staff", label: "Staff CS", icon: <Headset className="w-4 h-4" />, ownerOnly: true },
+    { id: "promo", label: "Kode Promo", icon: <Ticket className="w-4 h-4" />, ownerOnly: true },
     { id: "server", label: "Server", icon: <ServerIcon className="w-4 h-4" />, ownerOnly: true },
     { id: "laporan", label: "Laporan & Monitoring", icon: <TrendingUp className="w-4 h-4" />, ownerOnly: true },
     { id: "akun", label: "Akun Owner", icon: <UserCog className="w-4 h-4" />, ownerOnly: true },
@@ -961,6 +1006,115 @@ export function AdminHub({
                         )}
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---- KODE PROMO ---- */}
+            {tab === "promo" && isOwner && (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
+                  <p className="font-bold text-white flex items-center gap-2 mb-1">
+                    <Ticket className="w-4 h-4" style={{ color: ACCENT }} /> Buat Kode Promo / Voucher
+                  </p>
+                  <p className="text-[12px] text-zinc-500 mb-4">
+                    Customer menukar kode ini di halaman toko → saldo langsung masuk ke akunnya. Cocok untuk kupon,
+                    kompensasi, giveaway, atau bonus referral manual.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <Field label="Kode (cth: KAKO10RB)">
+                      <input
+                        value={pf.code}
+                        onChange={(e) => setPf({ ...pf, code: e.target.value.toUpperCase() })}
+                        placeholder="KAKO10RB"
+                        className={`${inputCls} uppercase`}
+                      />
+                    </Field>
+                    <Field label="Nominal saldo (Rp)">
+                      <input
+                        value={pf.nominal}
+                        onChange={(e) => setPf({ ...pf, nominal: e.target.value })}
+                        inputMode="numeric"
+                        placeholder="10000"
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Kuota pemakaian">
+                      <input
+                        value={pf.kuota}
+                        onChange={(e) => setPf({ ...pf, kuota: e.target.value })}
+                        inputMode="numeric"
+                        placeholder="10"
+                        className={inputCls}
+                      />
+                    </Field>
+                    <div className="flex items-end">
+                      <button
+                        onClick={createPromo}
+                        disabled={loading}
+                        className="px-5 py-2.5 rounded-xl text-sm font-bold text-black flex items-center gap-2 disabled:opacity-50"
+                        style={{ background: ACCENT, boxShadow: "0 8px 20px -8px rgba(0,230,118,0.6)" }}
+                      >
+                        <Plus className="w-4 h-4" /> Buat Kode
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[13px] font-bold text-white mb-2 flex items-center gap-2">
+                    <Gift className="w-4 h-4" style={{ color: ACCENT }} /> Kode aktif ({promos.length})
+                  </p>
+                  {promos.length === 0 && (
+                    <div className="text-center py-8 rounded-2xl border border-white/10 text-[13px] text-zinc-500">
+                      Belum ada kode promo. Buat satu di atas.
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {promos.map((p) => {
+                      const left = Math.max(0, p.kuota - p.used);
+                      return (
+                        <div key={p.code} className="rounded-2xl border border-white/10 bg-zinc-900/50 px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <span className="px-3 py-1.5 rounded-lg font-mono text-[13px] font-black tracking-wider bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                            {p.code}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-semibold text-white">
+                              {fmtRp(p.nominal)} <span className="text-zinc-500 font-normal">per penukaran</span>
+                            </p>
+                            <p className="text-[11px] text-zinc-500">
+                              Dipakai {p.used}/{p.kuota} · sisa {left} · dibuat {fmtDT(p.createdAt)}
+                            </p>
+                          </div>
+                          <Chip cls={left > 0 ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-zinc-500/10 text-zinc-400 border-white/10"}>
+                            {left > 0 ? "Aktif" : "Habis"}
+                          </Chip>
+                          {promoDel === p.code ? (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => deletePromo(p.code)}
+                                disabled={loading}
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-black disabled:opacity-50"
+                                style={{ background: ACCENT }}
+                              >
+                                Ya, hapus
+                              </button>
+                              <button onClick={() => setPromoDel(null)} className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/10 text-zinc-300">
+                                Batal
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setPromoDel(p.code)}
+                              className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-red-500/30 text-red-300 bg-red-500/10 hover:bg-red-500/20 flex items-center gap-1"
+                            >
+                              <Trash2 className="w-3 h-3" /> Hapus
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

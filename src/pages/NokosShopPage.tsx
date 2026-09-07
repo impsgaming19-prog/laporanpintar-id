@@ -32,6 +32,8 @@ import {
   Plus,
   Minus,
   KeyRound,
+  Gift,
+  Ticket,
 } from "lucide-react";
 
 import {
@@ -56,6 +58,8 @@ import {
   apiShopLogin,
   apiShopOrders,
   apiShopRecordOtp,
+  apiMyReferral,
+  apiPromoRedeem,
   apiShopRegister,
   apiShopRegisterOwner,
   apiShopSetServerEnabled,
@@ -207,6 +211,12 @@ export default function NokosShopPage() {
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositRef, setDepositRef] = useState<string | null>(null);
   const depositPolling = useRef(false);
+
+  /* ---------- kode promo / voucher & referral ---------- */
+  const [promoCode, setPromoCode] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoMsg, setPromoMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [refInfo, setRefInfo] = useState<{ refCode: string; referredBy: string; referralBonusAt: number | null } | null>(null);
 
   /* ---------- panel admin (owner/cs) ---------- */
   const [adminOpen, setAdminOpen] = useState(false);
@@ -454,6 +464,50 @@ export default function NokosShopPage() {
       /* ignore */
     }
   };
+
+  /* ---------- kode promo / voucher & referral ---------- */
+  const refreshRef = async () => {
+    if (!session) return;
+    try {
+      const r = await apiMyReferral(session.user.id);
+      if (r.ok && r.refCode) {
+        setRefInfo({ refCode: r.refCode, referredBy: r.referredBy || "", referralBonusAt: r.referralBonusAt ?? null });
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const redeemCode = async () => {
+    if (!session) return;
+    const code = promoCode.trim();
+    if (!code) {
+      setPromoMsg({ kind: "err", text: "Masukkan kode promo dulu." });
+      return;
+    }
+    setPromoBusy(true);
+    setPromoMsg(null);
+    try {
+      const r = await apiPromoRedeem(session.user.id, code);
+      if (r.ok) {
+        setPromoCode("");
+        setPromoMsg({ kind: "ok", text: `Kode ${code} berhasil ditukar — +Rp ${formatRupiah(r.nominal || 0)} masuk ke saldo kamu!` });
+        if (r.balance != null) setWalletBalance(r.balance);
+        await refreshWalletOrders(session.user.id);
+      } else {
+        setPromoMsg({ kind: "err", text: r.error || "Kode tidak bisa ditukar." });
+      }
+    } catch (err: any) {
+      setPromoMsg({ kind: "err", text: err?.message || "Gagal menukar kode." });
+    } finally {
+      setPromoBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (session) refreshRef();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
 
   const statusMeta = (status: string): { label: string; cls: string } => {
     if (status === "done" || status === "otp") return { label: "OTP masuk", cls: "bg-emerald-500/15 text-emerald-400" };
@@ -1017,6 +1071,93 @@ export default function NokosShopPage() {
           </div>
           </div>
         </motion.div>
+
+        {/* ================= KODE PROMO & UNDANG TEMAN ================= */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          {/* tukar kode promo / voucher */}
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            className="rounded-2xl border border-emerald-500/25 p-5"
+            style={{ background: "linear-gradient(150deg, rgba(0,230,118,0.08), rgba(255,255,255,0.01))", boxShadow: "0 16px 40px -26px rgba(0,230,118,0.5)" }}
+          >
+            <p className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+              <Ticket className="w-4 h-4" style={{ color: ACCENT }} /> Punya Kode Promo / Voucher?
+            </p>
+            <p className="text-[12px] text-zinc-500 mb-3">Tukar kode di sini — saldo langsung masuk ke akun kamu.</p>
+            <div className="flex gap-2">
+              <input
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                placeholder="cth: KAKO10RB"
+                className="flex-1 min-w-0 rounded-xl bg-zinc-800 border border-white/10 px-3.5 py-2.5 text-sm text-white uppercase placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
+              />
+              <button
+                onClick={redeemCode}
+                disabled={promoBusy}
+                className="px-4 py-2.5 rounded-xl text-[13px] font-bold text-black disabled:opacity-60 flex items-center gap-1.5"
+                style={{ background: "linear-gradient(180deg,#7dffc4,#00e676 45%,#00b25a)", boxShadow: "0 10px 22px -10px rgba(0,230,118,0.6)" }}
+              >
+                {promoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Tukar"}
+              </button>
+            </div>
+            {promoMsg && (
+              <p
+                className={`mt-3 text-[12px] leading-relaxed rounded-xl px-3.5 py-2.5 border flex items-start gap-2 ${
+                  promoMsg.kind === "ok"
+                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
+                    : "bg-red-500/10 text-red-300 border-red-500/25"
+                }`}
+              >
+                {promoMsg.kind === "ok" ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                {promoMsg.text}
+              </p>
+            )}
+          </motion.div>
+
+          {/* undang teman */}
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ delay: 0.06 }}
+            className="rounded-2xl border border-red-500/25 p-5"
+            style={{ background: "linear-gradient(150deg, rgba(225,6,0,0.08), rgba(255,255,255,0.01))", boxShadow: "0 16px 40px -26px rgba(225,6,0,0.45)" }}
+          >
+            <p className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+              <Gift className="w-4 h-4" style={{ color: "#ff6b63" }} /> Ajak Teman — Dua-duanya Dapat Rp 5.000
+            </p>
+            <p className="text-[12px] text-zinc-500 mb-3">
+              Bagikan kode undanganmu. Saat teman daftar & isi saldo pertamanya ≥ Rp 10.000, bonus masuk ke kalian berdua.
+            </p>
+            {refInfo && refInfo.refCode ? (
+              <div className="flex items-center gap-2">
+                <span className="px-4 py-2.5 rounded-xl border border-dashed border-red-500/40 bg-red-500/10 font-mono text-base font-black tracking-[0.2em] text-white">
+                  {refInfo.refCode}
+                </span>
+                <button
+                  onClick={() => {
+                    handleCopy(refInfo.refCode);
+                    setPromoMsg({ kind: "ok", text: `Kode undangan ${refInfo.refCode} disalin — bagikan ke temanmu!` });
+                  }}
+                  className="px-3 py-2 rounded-xl text-[12px] font-bold border border-white/15 text-zinc-200 hover:bg-white/5 flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Salin
+                </button>
+                {refInfo.referralBonusAt ? (
+                  <span className="text-[11px] text-emerald-300 font-semibold ml-auto flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Bonusmu sudah aktif
+                  </span>
+                ) : refInfo.referredBy ? (
+                  <span className="text-[11px] text-amber-300 ml-auto">Kamu diajak teman — deposit pertama ≥ Rp 10.000 = bonus</span>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-[12px] text-zinc-500">Kode undanganmu otomatis dibuat — muat ulang halaman sebentar lagi untuk melihatnya.</p>
+            )}
+          </motion.div>
+        </div>
 
         {/* ================= KARTU INFO ALUR ================= */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">

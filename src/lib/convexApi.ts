@@ -215,16 +215,18 @@ export type ShopOrder = {
   createdAt: number;
 };
 
-/** Daftar akun customer (email + password). */
+/** Daftar akun customer (email + password, opsional kode undangan teman). */
 export async function apiShopRegister(opts: {
   email: string;
   password: string;
   fullName?: string;
-}): Promise<{ success: boolean; id?: string; error?: string }> {
-  return callAction<{ success: boolean; id?: string; error?: string }>("shop:registerCustomer", {
+  refCode?: string;
+}): Promise<{ success: boolean; id?: string; refCode?: string; error?: string }> {
+  return callAction<{ success: boolean; id?: string; refCode?: string; error?: string }>("shop:registerCustomer", {
     email: opts.email,
     password: opts.password,
     fullName: opts.fullName ?? undefined,
+    refCode: opts.refCode ?? undefined,
   });
 }
 
@@ -449,6 +451,67 @@ export async function apiProviderMonitor(
   actorId: string
 ): Promise<{ ok: boolean; providers?: ProviderStatusRow[]; checkedAt?: number; error?: string }> {
   return callAction("otpWatch:providerMonitor", { actorId });
+}
+
+export type PromoEntry = {
+  code: string;
+  nominal: number;
+  kuota: number;
+  used: number;
+  createdAt: number;
+};
+
+/** Daftar kode promo (khusus Owner). */
+export async function apiPromoList(
+  actorId: string
+): Promise<{ ok: boolean; promos?: PromoEntry[]; error?: string }> {
+  return callAction("otpWatch:promoList", { actorId });
+}
+
+/** Owner membuat kode promo (kode + nominal saldo + kuota). */
+export async function apiPromoCreate(
+  actorId: string,
+  code: string,
+  nominal: number,
+  kuota: number
+): Promise<{ ok: boolean; code?: string; error?: string }> {
+  return callAction("otpWatch:promoCreate", { actorId, code, nominal, kuota });
+}
+
+/** Owner menghapus kode promo. */
+export async function apiPromoDelete(actorId: string, code: string): Promise<{ ok: boolean; error?: string }> {
+  return callAction("otpWatch:promoDelete", { actorId, code });
+}
+
+/** Cek kode promo valid tanpa menukar. */
+export async function apiPromoValidate(code: string): Promise<{
+  ok: boolean;
+  code?: string;
+  nominal?: number;
+  kuota?: number;
+  used?: number;
+  error?: string;
+}> {
+  return callAction("otpWatch:promoValidate", { code });
+}
+
+/** Customer menukar kode promo -> saldo langsung masuk. */
+export async function apiPromoRedeem(
+  userId: string,
+  code: string
+): Promise<{ ok: boolean; nominal?: number; balance?: number; error?: string }> {
+  return callAction("otpWatch:promoRedeem", { userId, code });
+}
+
+/** Info kode undangan & bonus referral akun sendiri. */
+export async function apiMyReferral(userId: string): Promise<{
+  ok: boolean;
+  refCode?: string;
+  referredBy?: string;
+  referralBonusAt?: number | null;
+  error?: string;
+}> {
+  return callAction("otpWatch:myReferral", { userId });
 }
 
 /** Statistik panel admin. */

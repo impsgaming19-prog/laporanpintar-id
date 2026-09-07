@@ -260,3 +260,133 @@ export const providerMonitor = action({
     return { ok: true, providers: out, checkedAt: Date.now() };
   },
 });
+
+/* =====================================================================
+ * #2 — Kode promo / voucher saldo (dibuat Owner, ditukar customer)
+ * Kode tersimpan di pengaturan toko (key "promoCodes") sebagai peta:
+ *   { [KODE]: { nominal, kuota, used, createdAt } }
+ * ===================================================================== */
+
+type PromoEntry = { nominal: number; kuota: number; used: number; createdAt: number };
+
+async function readPromos(ctx: any): Promise<Record<string, PromoEntry>> {
+  const map = await ctx.runQuery(I.wallet.getSettings, {});
+  const raw = map["promoCodes"];
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, PromoEntry>;
+  return {};
+}
+
+function makeVoucherReference(code: string): string {
+  const rand =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().slice(0, 6)
+      : Math.random().toString(36).slice(2, 8);
+  return `VCH-${code}-${rand}`.toUpperCase();
+}
+
+/** Daftar kode promo (khusus Owner). */
+export const promoList = action({
+  args: { actorId: v.id("appUsers") },
+  handler: async (ctx, args) => {
+    const actor = await ctx.runQuery(I.wallet.actorInfo, { userId: args.actorId });
+    if (!actor || actor.role !== "owner") return { ok: false, error: "Khusus Owner." };
+    const promos = await readPromos(ctx);
+    const list = Object.entries(promos)
+      .map(([code, e]) => ({ code, ...e }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    return { ok: true, promos: list };
+  },
+});
+
+/** Owner membuat kode promo: kode + nominal saldo + kuota pemakaian. */
+export const promoCreate = action({
+  args: { actorId: v.id("appUsers"), code: v.string(), nominal: v.number(), kuota: v.number() },
+  handler: async (ctx, args) => {
+    const actor = await ctx.runQuery(I.wallet.actorInfo, { userId: args.actorId });
+    if (!actor || actor.role !== "owner") return { ok: false, error: "Khusus Owner." };
+    const code = args.code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (code.length < 4 || code.length > 16) return { ok: false, error: "Kode 4–16 huruf/angka (tanpa spasi)." };
+    const nominal = Math.floor(args.nominal);
+    const kuota = Math.max(1, Math.floor(args.kuota));
+    if (!Number.isFinite(nominal) || nominal < 1000) return { ok: false, error: "Nominal minimal Rp 1.000." };
+    const promos = await readPromos(ctx);
+    if (promos[code]) return { ok: false, error: `Kode ${code} sudah ada — pakai kode lain.` };
+    if (Object.keys(promos).length >= 50) return { ok: false, error: "Maksimal 50 kode aktif. Hapus yang tidak terpakai dulu." };
+    promos[code] = { nominal, kuota, used: 0, createdAt: Date.now() };
+    await ctx.runMutation(I.wallet.setSettings, { key: "promoCodes", value: promos });
+    return { ok: true, code };
+  },
+});
+
+/** Owner menghapus kode promo. */
+export const promoDelete = action({
+  args: { actorId: v.id("appUsers"), code: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await ctx.runQuery(I.wallet.actorInfo, { userId: args.actorId });
+    if (!actor || actor.role !== "owner") return { ok: false, error: "Khusus Owner." };
+    const promos = await readPromos(ctx);
+    const code = args.code.trim().toUpperCase();
+    if (!promos[code]) return { ok: false, error: "Kode tidak ditemukan." };
+    delete promos[code];
+    await ctx.runMutation(I.wallet.setSettings, { key: "promoCodes", value: promos });
+    return { ok: true };
+  },
+});
+
+/** Cek kode promo valid (untuk preview di halaman, tanpa menukar). */
+export const promoValidate = action({
+  args: { code: v.string() },
+  handler: async (ctx, args) => {
+    const promos = await readPromos(ctx);
+    const code = args.code.trim().toUpperCase();
+    const e = promos[code];
+    if (!e) return { ok: false, error: "Kode tidak ditemukan." };
+    if (e.used >= e.kuota) return { ok: false, error: "Kode sudah habis dipakai (kuota terpenuhi)." };
+    return { ok: true, code, nominal: e.nominal, kuota: e.kuota, used: e.used };
+  },
+});
+
+/** Customer menukar kode promo -> saldo langsung masuk. */
+export const promoRedeem = action({
+  args: { userId: v.id("appUsers"), code: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.runQuery(I.wallet.actorInfo, { userId: args.userId });
+    if (!user) return { ok: false, error: "Akun tidak ditemukan." };
+    if (user.role !== "customer") return { ok: false, error: "Hanya akun customer yang bisa menukar kode." };
+    const code = args.code.trim().toUpperCase();
+    const promos = await readPromos(ctx);
+    const e = promos[code];
+    if (!e) return { ok: false, error: "Kode tidak ditemukan. Periksa lagi kodenya." };
+    if (e.used >= e.kuota) return { ok: false, error: "Kode sudah habis dipakai (kuota terpenuhi)." };
+    const res = await ctx.runMutation(I.wallet.applyVoucher, {
+      userId: args.userId,
+      code,
+      amount: e.nominal,
+      referenceId: makeVoucherReference(code),
+    });
+    if (!res.ok) return { ok: false, error: res.error || "Gagal menukar kode." };
+    // Catat pemakaian kode (kuota berkurang 1).
+    e.used += 1;
+    promos[code] = e;
+    await ctx.runMutation(I.wallet.setSettings, { key: "promoCodes", value: promos });
+    return { ok: true, nominal: e.nominal, balance: res.balance };
+  },
+});
+
+/** Info kode undangan & status bonus akun sendiri (untuk halaman customer). */
+export const myReferral = action({
+  args: { userId: v.id("appUsers") },
+  handler: async (ctx, args) => {
+    const actor = await ctx.runQuery(I.wallet.actorInfo, { userId: args.userId });
+    if (!actor) return { ok: false, error: "Akun tidak ditemukan." };
+    if (actor.role !== "customer") return { ok: false, error: "Khusus customer." };
+    const u: any = await ctx.runQuery(I.wallet.userDetail, { userId: args.userId });
+    if (!u) return { ok: false, error: "Akun tidak ditemukan." };
+    return {
+      ok: true,
+      refCode: u.refCode || "",
+      referredBy: u.referredBy || "",
+      referralBonusAt: u.referralBonusAt || null,
+    };
+  },
+});
