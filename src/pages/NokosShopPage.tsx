@@ -76,6 +76,7 @@ import {
   AdminDepositTab,
   CustomerAdminTab as CustomerAdminTabPanel,
 } from "@/pages/adminBits";
+import { LandingPage as ShopLanding } from "@/pages/shopLanding";
 
 /* ---------- brand ---------- */
 const RED = "#e10600";
@@ -820,7 +821,7 @@ export default function NokosShopPage() {
    * GATE: belum login -> landing page
    * ===================================================================== */
   if (!session) {
-    return <LandingPage onAuthed={applySession} />;
+    return <ShopLanding onAuthed={applySession} />;
   }
 
   const statusCls = (status: string) => statusMeta(status).cls;
