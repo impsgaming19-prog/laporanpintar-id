@@ -13,6 +13,7 @@ import {
   Globe,
   Users,
   Send,
+  Search,
   ArrowRightCircle,
   QrCode,
   Loader2,
@@ -125,6 +126,8 @@ export default function NokosShopPage() {
   const [dataError, setDataError] = useState<string | null>(null);
   // Dipakai tombol "Muat Ulang Data" supaya efek pemuatan data benar-benar jalan lagi.
   const [reloadToken, setReloadToken] = useState(0);
+  // Pencarian layanan di dalam kartu layanan (biar cepat ketemu).
+  const [serviceQuery, setServiceQuery] = useState("");
   const [depositOpen, setDepositOpen] = useState(false);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -151,6 +154,17 @@ export default function NokosShopPage() {
     if (!selectedService) return 0;
     return computeSellPrice(selectedService.price);
   }, [selectedService]);
+
+  /* ---------- filter hasil pencarian layanan ---------- */
+  const visibleServices = useMemo(() => {
+    const q = serviceQuery.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter((s) => {
+      const name = String(s.name || "");
+      const code = String(s.service ?? s.id ?? "");
+      return name.toLowerCase().includes(q) || code.toLowerCase().includes(q);
+    });
+  }, [services, serviceQuery]);
 
   /* ---------- ambil negara per server ---------- */
   useEffect(() => {
@@ -206,6 +220,7 @@ export default function NokosShopPage() {
     let cancelled = false;
     setServices([]);
     setSelectedServiceId(null);
+    setServiceQuery("");
     setLoadingData(true);
 
     const load = async () => {
@@ -636,7 +651,7 @@ export default function NokosShopPage() {
               <StatCard icon={<Globe className="w-5 h-5" />} number={String(countries.length || "-")} label="Negara (live)" />
               <StatCard icon={<Send className="w-5 h-5" />} number={String(services.length || "-")} label="Layanan (live)" />
               <StatCard icon={<Users className="w-5 h-5" />} number="QRIS" label="Pembayaran" />
-              <StatCard icon={<Zap className="w-5 h-5" />} number="+30%" label="Sudah final" />
+              <StatCard icon={<ShieldCheck className="w-5 h-5" />} number="Final" label="Harga di layar" />
             </div>
           </div>
         </motion.div>
@@ -645,7 +660,7 @@ export default function NokosShopPage() {
         <div id="cara" className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 scroll-mt-20">
           {[
             { icon: <Zap className="w-5 h-5 text-red-500" />, title: "Server Pilihan", desc: "KirimKode, Ditznesia, dan Ditznesia API v2. Data tiap server diambil live dari API-nya masing-masing." },
-            { icon: <ShieldCheck className="w-5 h-5 text-red-500" />, title: "Bayar QR, Nomor Masuk", desc: "Pembayaran via QR Paymentku. Setelah lunas, nomor langsung dipesan dari server (saldo owner di website provider)." },
+            { icon: <ShieldCheck className="w-5 h-5 text-red-500" />, title: "Bayar QR, Nomor Masuk", desc: "Pembayaran via QR Paymentku. Setelah lunas, nomor langsung dipesan dari server." },
             { icon: <PhoneIncoming className="w-5 h-5 text-red-500" />, title: "OTP Masuk Otomatis", desc: "Kode OTP dicek otomatis sampai masuk dan ditampilkan di halaman ini." },
           ].map((item) => (
             <div key={item.title} className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 flex gap-3">
@@ -762,36 +777,57 @@ export default function NokosShopPage() {
                   <ShoppingCart className="w-4 h-4 text-red-500" /> Layanan
                 </h3>
                 <p className="text-[12px] text-zinc-500 mb-3">
-                  {loadingData ? "memuat..." : `${services.length} layanan tersedia`}
+                  {loadingData
+                    ? "memuat..."
+                    : serviceQuery.trim()
+                    ? `${visibleServices.length} dari ${services.length} layanan`
+                    : `${services.length} layanan tersedia`}
                 </p>
                 {services.length === 0 ? (
                   <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
                     <Loader2 className="w-4 h-4 animate-spin" /> Memuat layanan...
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto pr-1">
-                    {services.map((s) => {
-                      const key = String(s.service ?? s.id);
-                      const active = String(selectedServiceId) === key;
-                      const isOut = s.stock === 0;
-                      return (
-                        <button
-                          key={key}
-                          disabled={isOut}
-                          onClick={() => setSelectedServiceId(key)}
-                          className={`rounded-xl px-3 py-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                            active ? "bg-white/10 ring-1 ring-white/30" : "bg-zinc-800/80 hover:bg-zinc-700/80"
-                          }`}
-                        >
-                          <p className="text-[13px] font-semibold text-white truncate">{s.name || key}</p>
-                          <p className="text-[11px] mt-0.5">
-                            <span style={{ color: ACCENT }}>Rp {formatRupiah(computeSellPrice(s.price))}</span>
-                            <span className="text-zinc-500"> • stok {isOut ? "habis" : s.stock}</span>
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <>
+                    <div className="relative mb-3">
+                      <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        value={serviceQuery}
+                        onChange={(e) => setServiceQuery(e.target.value)}
+                        placeholder="Cari layanan… (mis. whatsapp, telegram, otp)"
+                        className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                    {visibleServices.length === 0 ? (
+                      <div className="text-[13px] text-zinc-500 py-6 text-center">
+                        Tidak ada layanan yang cocok dengan “{serviceQuery.trim()}”.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto pr-1">
+                        {visibleServices.map((s) => {
+                          const key = String(s.service ?? s.id);
+                          const active = String(selectedServiceId) === key;
+                          const isOut = s.stock === 0;
+                          return (
+                            <button
+                              key={key}
+                              disabled={isOut}
+                              onClick={() => setSelectedServiceId(key)}
+                              className={`rounded-xl px-3 py-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                active ? "bg-white/10 ring-1 ring-white/30" : "bg-zinc-800/80 hover:bg-zinc-700/80"
+                              }`}
+                            >
+                              <p className="text-[13px] font-semibold text-white truncate">{s.name || key}</p>
+                              <p className="text-[11px] mt-0.5">
+                                <span style={{ color: ACCENT }}>Rp {formatRupiah(computeSellPrice(s.price))}</span>
+                                <span className="text-zinc-500"> • stok {isOut ? "habis" : s.stock}</span>
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -820,9 +856,9 @@ export default function NokosShopPage() {
               <p className="text-lg font-bold text-white mt-1 truncate">{selectedService?.name || "-"}</p>
             </div>
             <div className="p-5 text-center bg-red-600/10">
-              <p className="text-[11px] uppercase tracking-widest text-zinc-400">Harga Final</p>
+              <p className="text-[11px] uppercase tracking-widest text-zinc-400">Total Bayar</p>
               <p className="text-2xl font-extrabold mt-1">Rp {formatRupiah(sellPrice)}</p>
-              <p className="text-[12px] text-zinc-400 mt-1">harga server + 30% (sudah final)</p>
+              <p className="text-[12px] text-zinc-400 mt-1">jumlah yang kamu bayar</p>
             </div>
           </div>
 
@@ -1139,8 +1175,7 @@ export default function NokosShopPage() {
 
       <footer className="border-t border-white/10 mt-12 py-6 text-center text-[12px] text-zinc-500">
         <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
-        <p className="mt-1">Harga final = harga server + 30%. Pembayaran QR via Paymentku.</p>
-        <p className="mt-2 text-[10px] font-mono text-zinc-600">backend: kako-nokos / glorious-ladybug-353</p>
+        <p className="mt-1">Harga yang tampil adalah harga yang kamu bayar. Pembayaran via QR Paymentku.</p>
       </footer>
     </div>
   );
