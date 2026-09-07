@@ -128,6 +128,10 @@ export default function NokosShopPage() {
   const [reloadToken, setReloadToken] = useState(0);
   // Pencarian layanan di dalam kartu layanan (biar cepat ketemu).
   const [serviceQuery, setServiceQuery] = useState("");
+  // Pencarian negara di kartu negara.
+  const [countryQuery, setCountryQuery] = useState("");
+  // Total negara gabungan semua server (untuk statistik di hero).
+  const [totalCountries, setTotalCountries] = useState<number | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -155,6 +159,32 @@ export default function NokosShopPage() {
     return computeSellPrice(selectedService.price);
   }, [selectedService]);
 
+  /* ---------- total negara semua server (statistik hero) ---------- */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Gabungkan daftar negara dari server yang aktif; yang gagal diabaikan.
+      const ids: ProviderId[] = ["kirimkode", "ditznesia"];
+      const lists = await Promise.all(ids.map((id) => apiListCountries(id).catch(() => [] as Country[])));
+      if (cancelled) return;
+      const seen = new Set<string>();
+      for (const list of lists) {
+        for (const c of list) seen.add(String(c.name || "").trim().toLowerCase());
+      }
+      setTotalCountries(seen.size > 0 ? seen.size : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* ---------- filter hasil pencarian negara ---------- */
+  const visibleCountries = useMemo(() => {
+    const q = countryQuery.trim().toLowerCase();
+    if (!q) return countries;
+    return countries.filter((c) => String(c.name || "").toLowerCase().includes(q));
+  }, [countries, countryQuery]);
+
   /* ---------- filter hasil pencarian layanan ---------- */
   const visibleServices = useMemo(() => {
     const q = serviceQuery.trim().toLowerCase();
@@ -174,6 +204,7 @@ export default function NokosShopPage() {
     setSelectedCountryId(null);
     setSelectedServiceId(null);
     setDataError(null);
+    setCountryQuery("");
 
     const load = async () => {
       setLoadingData(true);
@@ -648,7 +679,7 @@ export default function NokosShopPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <StatCard icon={<Globe className="w-5 h-5" />} number={String(countries.length || "-")} label="Negara (live)" />
+              <StatCard icon={<Globe className="w-5 h-5" />} number={totalCountries == null ? "-" : String(totalCountries)} label="Negara (semua server)" />
               <StatCard icon={<Send className="w-5 h-5" />} number={String(services.length || "-")} label="Layanan (live)" />
               <StatCard icon={<Users className="w-5 h-5" />} number="QRIS" label="Pembayaran" />
               <StatCard icon={<ShieldCheck className="w-5 h-5" />} number="Final" label="Harga di layar" />
@@ -744,30 +775,53 @@ export default function NokosShopPage() {
                 <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
                   <Globe className="w-4 h-4 text-red-500" /> Negara ({server.providerLabel})
                 </h3>
-                <p className="text-[12px] text-zinc-500 mb-3">Dari API server — {loadingData ? "memuat..." : `${countries.length} negara`}</p>
+                <p className="text-[12px] text-zinc-500 mb-3">
+                  {loadingData
+                    ? "memuat..."
+                    : countryQuery.trim()
+                    ? `${visibleCountries.length} dari ${countries.length} negara`
+                    : `${countries.length} negara`}
+                </p>
                 {countries.length === 0 ? (
                   <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
                     <Loader2 className="w-4 h-4 animate-spin" /> Memuat negara...
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
-                    {countries.map((c) => {
-                      const key = String(c.id ?? c.name);
-                      const active = String(selectedCountryId) === key;
-                      return (
-                        <button
-                          key={key}
-                          onClick={() => setSelectedCountryId(c.id)}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
-                            active ? "text-white shadow-md" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                          }`}
-                          style={active ? { backgroundColor: RED } : {}}
-                        >
-                          {c.name}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <>
+                    <div className="relative mb-3">
+                      <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        value={countryQuery}
+                        onChange={(e) => setCountryQuery(e.target.value)}
+                        placeholder="Cari negara… (mis. indonesia, japan)"
+                        className="w-full rounded-xl bg-zinc-800 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                    {visibleCountries.length === 0 ? (
+                      <div className="text-[13px] text-zinc-500 py-6 text-center">
+                        Tidak ada negara yang cocok dengan “{countryQuery.trim()}”.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
+                        {visibleCountries.map((c) => {
+                          const key = String(c.id ?? c.name);
+                          const active = String(selectedCountryId) === key;
+                          return (
+                            <button
+                              key={key}
+                              onClick={() => setSelectedCountryId(c.id)}
+                              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
+                                active ? "text-white shadow-md" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                              }`}
+                              style={active ? { backgroundColor: RED } : {}}
+                            >
+                              {c.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
