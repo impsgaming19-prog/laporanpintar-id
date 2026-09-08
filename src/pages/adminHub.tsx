@@ -26,6 +26,8 @@ import {
   TrendingUp,
   Ticket,
   Gift,
+  Landmark,
+  Smartphone,
 } from "lucide-react";
 import {
   apiAdminAdjustBalance,
@@ -44,10 +46,19 @@ import {
   apiPromoList,
   apiShopSetConfig,
   apiShopSetServerEnabled,
+  apiAdminPaymentConfig,
+  apiAdminSetPaymentkuEnabled,
+  apiAdminSavePaymentMethod,
+  apiAdminTogglePaymentMethod,
+  apiAdminDeletePaymentMethod,
+  apiAdminDepositSettle,
+  apiAdminDepositReject,
   type AdminDeposit,
   type AdminOrder,
   type AdminStats,
   type AdminUser,
+  type PayMethod,
+  type PayMethodType,
   type PromoEntry,
   type ShopUser,
 } from "@/lib/convexApi";
@@ -99,7 +110,7 @@ const SERVER_ROWS = [
   { id: "jasav4", label: "JasaOTP v4", provider: "Ditznesia API v2", badge: "Baru", desc: "Server tambahan Ditznesia v2 (aktif bila kunci terisi)." },
 ];
 
-type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "staff" | "promo" | "server" | "laporan" | "akun";
+type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "pembayaran" | "staff" | "promo" | "server" | "laporan" | "akun";
 
 function Chip({ children, cls }: { children: ReactNode; cls?: string }) {
   return (
@@ -166,6 +177,21 @@ export function AdminHub({
   const [pf, setPf] = useState({ code: "", nominal: "", kuota: "" });
   const [promoDel, setPromoDel] = useState<string | null>(null);
 
+  /* metode pembayaran */
+  const [paykuEnabled, setPaykuEnabled] = useState(true);
+  const [payMethods, setPayMethods] = useState<PayMethod[]>([]);
+  const [showPayForm, setShowPayForm] = useState(false);
+  const [pfm, setPfm] = useState<{
+    id: string;
+    type: PayMethodType;
+    label: string;
+    accountName: string;
+    accountNo: string;
+    imageUrl: string;
+  }>({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "" });
+  const [confirmSettle, setConfirmSettle] = useState<string | null>(null);
+  const [confirmRejectDep, setConfirmRejectDep] = useState<string | null>(null);
+
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
 
@@ -196,16 +222,21 @@ export function AdminHub({
       if (!us.ok) flash("err", us.error || "Gagal memuat customer.");
       if (!or.ok) flash("err", or.error || "Gagal memuat transaksi.");
       if (isOwner) {
-        const [st, dp, sv, gc] = await Promise.all([
+        const [st, dp, sv, gc, pc] = await Promise.all([
           apiAdminStats(actorId),
           apiAdminDeposits(actorId),
           apiShopGetSettings().catch(() => ({ ok: false as const })),
           apiShopGetConfig().catch(() => ({ ok: false as const })),
+          apiAdminPaymentConfig(actorId).catch(() => ({ ok: false as const })),
         ]);
         if (st.ok && st.stats) setStats(st.stats);
         if (dp.ok && dp.deposits) setDeposits(dp.deposits);
         if (sv.ok && sv.servers) setServerMap(sv.servers);
         if (gc.ok && gc.config) setFeeStr(String(gc.config.feePct ?? 0));
+        if (pc.ok) {
+          if (pc.paykuEnabled != null) setPaykuEnabled(pc.paykuEnabled);
+          if (pc.methods) setPayMethods(pc.methods);
+        }
         if (!st.ok) flash("err", st.error || "Gagal memuat statistik.");
         if (!dp.ok) flash("err", dp.error || "Gagal memuat deposit.");
         const pl = await apiPromoList(actorId).catch(() => ({ ok: false as const }));
@@ -360,6 +391,108 @@ export function AdminHub({
     }
   };
 
+  /* ---------- metode pembayaran ---------- */
+  const togglePayku = async (enabled: boolean) => {
+    setLoading(true);
+    const res = await apiAdminSetPaymentkuEnabled(actorId, enabled).catch(() => null);
+    if (res?.ok) {
+      setPaykuEnabled(enabled);
+      flash("ok", `QR Paymentku ${enabled ? "ditampilkan" : "disembunyikan"} di halaman Isi Saldo customer.`);
+    } else {
+      flash("err", res?.error || "Gagal mengubah Paymentku.");
+    }
+    setLoading(false);
+  };
+
+  const savePayMethod = async () => {
+    if (!pfm.label.trim() || !pfm.accountName.trim() || !pfm.accountNo.trim()) {
+      flash("err", "Lengkapi nama metode, nama pemilik, dan nomor/tujuan.");
+      return;
+    }
+    setLoading(true);
+    const res = await apiAdminSavePaymentMethod(actorId, {
+      id: pfm.id || undefined,
+      type: pfm.type,
+      label: pfm.label.trim(),
+      accountName: pfm.accountName.trim(),
+      accountNo: pfm.accountNo.trim(),
+      imageUrl: pfm.imageUrl.trim() || undefined,
+    }).catch(() => null);
+    if (res?.ok) {
+      if (res.methods) setPayMethods(res.methods);
+      flash("ok", pfm.id ? `Metode ${pfm.label} diperbarui.` : `Metode ${pfm.label} ditambahkan — sekarang tampil di halaman Isi Saldo.`);
+      setShowPayForm(false);
+      setPfm({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "" });
+    } else {
+      flash("err", res?.error || "Gagal menyimpan metode.");
+    }
+    setLoading(false);
+  };
+
+  const editPayMethod = (m: PayMethod) => {
+    setPfm({
+      id: m.id,
+      type: m.type,
+      label: m.label,
+      accountName: m.accountName,
+      accountNo: m.accountNo,
+      imageUrl: m.imageUrl || "",
+    });
+    setShowPayForm(true);
+  };
+
+  const togglePayMethod = async (m: PayMethod, enabled: boolean) => {
+    setLoading(true);
+    const res = await apiAdminTogglePaymentMethod(actorId, m.id, enabled).catch(() => null);
+    if (res?.ok) {
+      if (res.methods) setPayMethods(res.methods);
+      flash("ok", `${m.label} ${enabled ? "ditampilkan" : "disembunyikan"}.`);
+    } else {
+      flash("err", res?.error || "Gagal mengubah metode.");
+    }
+    setLoading(false);
+  };
+
+  const deletePayMethod = async (m: PayMethod) => {
+    if (!window.confirm(`Hapus metode "${m.label}"? Deposit lama tetap tersimpan di riwayat.`)) return;
+    setLoading(true);
+    const res = await apiAdminDeletePaymentMethod(actorId, m.id).catch(() => null);
+    if (res?.ok) {
+      if (res.methods) setPayMethods(res.methods);
+      flash("ok", `Metode ${m.label} dihapus.`);
+    } else {
+      flash("err", res?.error || "Gagal menghapus metode.");
+    }
+    setLoading(false);
+  };
+
+  /* ---------- approve / tolak deposit manual ---------- */
+  const approveDeposit = async (d: AdminDeposit) => {
+    setConfirmSettle(null);
+    setLoading(true);
+    const res = await apiAdminDepositSettle(actorId, d.referenceId).catch(() => null);
+    if (res?.ok) {
+      flash("ok", `Deposit ${d.referenceId} diterima — saldo ${d.fullName || d.username} +${fmtRp(d.amount || 0)} (${fmtRp(res.balance || 0)}).`);
+      reload();
+    } else {
+      flash("err", res?.error || "Gagal menyetujui deposit.");
+      setLoading(false);
+    }
+  };
+
+  const rejectDeposit = async (d: AdminDeposit) => {
+    setConfirmRejectDep(null);
+    setLoading(true);
+    const res = await apiAdminDepositReject(actorId, d.referenceId).catch(() => null);
+    if (res?.ok) {
+      flash("ok", `Deposit ${d.referenceId} ditolak.`);
+      reload();
+    } else {
+      flash("err", res?.error || "Gagal menolak deposit.");
+      setLoading(false);
+    }
+  };
+
   const createPromo = async () => {
     const code = pf.code.trim().toUpperCase();
     const nominal = Math.round(Number(pf.nominal));
@@ -430,6 +563,7 @@ export function AdminHub({
     { id: "customer", label: "Customer", icon: <Users className="w-4 h-4" /> },
     { id: "transaksi", label: "Transaksi", icon: <ReceiptText className="w-4 h-4" /> },
     { id: "deposit", label: "Deposit", icon: <QrCode className="w-4 h-4" />, ownerOnly: true },
+    { id: "pembayaran", label: "Pembayaran", icon: <Wallet className="w-4 h-4" />, ownerOnly: true },
     { id: "staff", label: "Staff CS", icon: <Headset className="w-4 h-4" />, ownerOnly: true },
     { id: "promo", label: "Kode Promo", icon: <Ticket className="w-4 h-4" />, ownerOnly: true },
     { id: "server", label: "Server", icon: <ServerIcon className="w-4 h-4" />, ownerOnly: true },
@@ -895,26 +1029,242 @@ export function AdminHub({
                     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
                     .map((d) => {
                       const paid = d.status === "paid";
+                      const manualPending = d.status === "pending" && d.channel === "manual";
+                      const rejected = d.status === "rejected";
+                      const isVoucher = d.status === "voucher" || d.channel === "voucher";
+                      const chChip = isVoucher
+                        ? { label: "Voucher", cls: "bg-violet-500/10 text-violet-300 border-violet-500/30" }
+                        : d.methodLabel
+                          ? { label: d.methodLabel, cls: "bg-sky-500/10 text-sky-300 border-sky-500/30" }
+                          : d.channel === "manual"
+                            ? { label: "Isi Manual", cls: "bg-sky-500/10 text-sky-300 border-sky-500/30" }
+                            : { label: "QR Paymentku", cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" };
+                      const stChip = paid
+                        ? { label: "Lunas", cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" }
+                        : rejected
+                          ? { label: "Ditolak", cls: "bg-red-500/10 text-red-300 border-red-500/30" }
+                          : manualPending
+                            ? { label: "Menunggu konfirmasi", cls: "bg-amber-500/10 text-amber-300 border-amber-500/30" }
+                            : { label: "Pending", cls: "bg-amber-500/10 text-amber-300 border-amber-500/30" };
                       return (
-                        <div key={d.id} className="rounded-2xl border border-white/10 bg-zinc-900/50 px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                          <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${paid ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/10 text-amber-300"}`}>
-                            {paid ? <CheckCircle2 className="w-4 h-4" /> : <QrCode className="w-4 h-4" />}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-semibold text-white truncate">{d.fullName || d.username}</p>
-                            <p className="text-[11px] text-zinc-500 truncate">
-                              {d.referenceId} · dibuat {fmtDT(d.createdAt)}
-                            </p>
+                        <div key={d.id} className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                            <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${paid ? "bg-emerald-500/15 text-emerald-300" : rejected ? "bg-red-500/10 text-red-300" : "bg-amber-500/10 text-amber-300"}`}>
+                              {paid ? <CheckCircle2 className="w-4 h-4" /> : rejected ? <XCircle className="w-4 h-4" /> : <QrCode className="w-4 h-4" />}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] font-semibold text-white truncate">{d.fullName || d.username}</p>
+                              <p className="text-[11px] text-zinc-500 truncate">
+                                {d.referenceId} · {fmtDT(d.createdAt)}
+                              </p>
+                            </div>
+                            <Chip cls={chChip.cls}>{chChip.label}</Chip>
+                            <Chip cls={stChip.cls}>{stChip.label}</Chip>
+                            <span className="text-[14px] font-black whitespace-nowrap" style={{ color: paid ? ACCENT : rejected ? "#f87171" : "#fbbf24" }}>
+                              {fmtRp(d.amount || 0)}
+                            </span>
                           </div>
-                          <Chip cls={paid ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-amber-500/10 text-amber-300 border-amber-500/30"}>
-                            {paid ? "Lunas" : "Pending"}
-                          </Chip>
-                          <span className="text-[14px] font-black whitespace-nowrap" style={{ color: paid ? ACCENT : "#fbbf24" }}>
-                            {fmtRp(d.amount || 0)}
-                          </span>
+                          {d.methodDetail && (
+                            <p className="text-[11px] text-zinc-400 mt-1.5 break-words">
+                              📋 {d.methodDetail}
+                            </p>
+                          )}
+                          {d.note && (
+                            <p className="text-[11px] text-zinc-500 mt-1 italic">Catatan customer: {d.note}</p>
+                          )}
+                          {manualPending && (
+                            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                              {confirmSettle === d.referenceId ? (
+                                <>
+                                  <span className="text-[12px] text-zinc-300">Yakin sudah menerima pembayarannya? Saldo {fmtRp(d.amount || 0)} langsung masuk ke {d.fullName || d.username}.</span>
+                                  <button onClick={() => approveDeposit(d)} disabled={loading} className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-black disabled:opacity-50" style={{ background: ACCENT }}>
+                                    Ya, terima
+                                  </button>
+                                  <button onClick={() => setConfirmSettle(null)} className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/10 text-zinc-300">
+                                    Batal
+                                  </button>
+                                </>
+                              ) : confirmRejectDep === d.referenceId ? (
+                                <>
+                                  <span className="text-[12px] text-zinc-300">Tolak deposit ini?</span>
+                                  <button onClick={() => rejectDeposit(d)} disabled={loading} className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-red-500 text-white disabled:opacity-50">
+                                    Ya, tolak
+                                  </button>
+                                  <button onClick={() => setConfirmRejectDep(null)} className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/10 text-zinc-300">
+                                    Batal
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setConfirmSettle(d.referenceId)}
+                                    disabled={loading}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-black flex items-center gap-1 disabled:opacity-50"
+                                    style={{ background: ACCENT, boxShadow: "0 6px 16px -6px rgba(0,230,118,0.5)" }}
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" /> Terima (masukkan saldo)
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmRejectDep(d.referenceId)}
+                                    disabled={loading}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-red-500/30 text-red-300 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50"
+                                  >
+                                    <XCircle className="w-3 h-3 inline-block mr-1" /> Tolak
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
+                </div>
+              </div>
+            )}
+
+            {/* ---- PEMBAYARAN (metode isi saldo customer) ---- */}
+            {tab === "pembayaran" && isOwner && (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5 space-y-4">
+                  <div>
+                    <p className="text-[14px] font-bold text-white mb-1 flex items-center gap-2">
+                      <QrCode className="w-4 h-4" style={{ color: ACCENT }} /> Pembayaran di halaman Isi Saldo customer
+                    </p>
+                    <p className="text-[12px] text-zinc-400 leading-relaxed">
+                      Customer memilih cara bayar: <b className="text-white">QR Paymentku</b> (otomatis, saldo masuk begitu
+                      lunas) atau <b className="text-white">Isi Manual</b> (QR/Bank/E-Wallet — kamu cek dulu transfernya di tab
+                      Deposit, lalu tekan <b className="text-white">Terima</b> supaya saldo masuk). Di sini kamu atur mana yang
+                      tampil; logika Paymentku tidak diubah.
+                    </p>
+                  </div>
+
+                  {/* Paymentku toggle */}
+                  <div className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                        <QrCode className="w-5 h-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-bold text-white">QRIS Paymentku (otomatis)</p>
+                        <p className="text-[11px] text-zinc-500">
+                          {paykuEnabled ? "Tampil di halaman Isi Saldo — saldo masuk otomatis saat pembayaran lunas." : "Disembunyikan dari customer. Kalau mau dipakai lagi, nyalakan di sini."}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => togglePayku(!paykuEnabled)}
+                      disabled={loading}
+                      className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 shrink-0 ${paykuEnabled ? "" : "bg-zinc-700"}`}
+                      style={paykuEnabled ? { backgroundColor: ACCENT } : {}}
+                      title={paykuEnabled ? "Sembunyikan Paymentku" : "Tampilkan Paymentku"}
+                    >
+                      <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${paykuEnabled ? "left-6" : "left-1"}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metode isi manual */}
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                    <div>
+                      <p className="text-[14px] font-bold text-white flex items-center gap-2">
+                        <Wallet className="w-4 h-4" style={{ color: ACCENT }} /> Metode Isi Manual ({payMethods.filter((m) => m.enabled).length} aktif)
+                      </p>
+                      <p className="text-[12px] text-zinc-400 mt-1">
+                        QR / Bank / E-Wallet. Customer transfer ke nomor ini lalu kirim konfirmasi; kamu cocokkan di tab Deposit.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setPfm({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "" });
+                        setShowPayForm(!showPayForm);
+                      }}
+                      className="px-3.5 py-2 rounded-xl text-[12px] font-bold text-black flex items-center gap-1.5"
+                      style={{ background: ACCENT }}
+                    >
+                      <Plus className="w-4 h-4" /> {showPayForm ? "Tutup" : "Tambah Metode"}
+                    </button>
+                  </div>
+
+                  {showPayForm && (
+                    <div className="rounded-xl border border-white/10 bg-zinc-900/70 p-4 mt-3 space-y-3">
+                      <p className="text-[12px] font-bold text-white">{pfm.id ? "Edit Metode" : "Metode Baru"}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <Field label="Jenis">
+                          <select value={pfm.type} onChange={(e) => setPfm({ ...pfm, type: e.target.value as PayMethodType })} className={inputCls}>
+                            <option value="qr">QR (QRIS/personal)</option>
+                            <option value="bank">Transfer Bank</option>
+                            <option value="ewallet">E-Wallet (DANA/OVO/GoPay/dll)</option>
+                          </select>
+                        </Field>
+                        <Field label="Nama metode (cth: BCA / DANA / QRIS)">
+                          <input value={pfm.label} onChange={(e) => setPfm({ ...pfm, label: e.target.value })} placeholder="cth: BCA" className={inputCls} />
+                        </Field>
+                        <Field label="Nomor/tujuan (no. rekening / ID / isi QR)">
+                          <input value={pfm.accountNo} onChange={(e) => setPfm({ ...pfm, accountNo: e.target.value })} placeholder="cth: 1234567890" className={inputCls} />
+                        </Field>
+                        <Field label="Nama pemilik (a.n.)">
+                          <input value={pfm.accountName} onChange={(e) => setPfm({ ...pfm, accountName: e.target.value })} placeholder="cth: KAKO NOKOS" className={inputCls} />
+                        </Field>
+                        <Field label="Gambar QR (opsional — link gambar)">
+                          <input value={pfm.imageUrl} onChange={(e) => setPfm({ ...pfm, imageUrl: e.target.value })} placeholder="https://...png" className={inputCls} />
+                        </Field>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={savePayMethod} disabled={loading} className="px-4 py-2 rounded-xl text-[12px] font-bold text-black disabled:opacity-50" style={{ background: ACCENT }}>
+                          <Save className="w-3.5 h-3.5 inline-block mr-1" /> Simpan Metode
+                        </button>
+                        <button onClick={() => setShowPayForm(false)} className="px-4 py-2 rounded-xl text-[12px] font-bold border border-white/10 text-zinc-300">
+                          Batal
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {payMethods.length === 0 && !showPayForm && (
+                    <div className="text-center py-8 text-[13px] text-zinc-500 mt-2">
+                      Belum ada metode isi manual. Tambahkan QR/Bank/E-Wallet supaya customer punya pilihan bayar manual.
+                    </div>
+                  )}
+
+                  <div className="space-y-2 mt-3">
+                    {payMethods.map((m) => {
+                      const enabled = m.enabled;
+                      return (
+                        <div key={m.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 flex flex-wrap items-center gap-3">
+                          <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border ${enabled ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25" : "bg-white/5 text-zinc-500 border-white/10"}`}>
+                            {m.type === "bank" ? <Landmark className="w-4 h-4" /> : m.type === "ewallet" ? <Smartphone className="w-4 h-4" /> : <QrCode className="w-4 h-4" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-[13px] font-bold truncate ${enabled ? "text-white" : "text-zinc-400"}`}>
+                              {m.label} <span className="text-[10px] font-semibold text-zinc-500">({m.type === "bank" ? "Transfer Bank" : m.type === "ewallet" ? "E-Wallet" : "QR"})</span>
+                            </p>
+                            <p className="text-[11px] text-zinc-500 truncate">
+                              {m.accountNo} · a.n. {m.accountName}
+                            </p>
+                          </div>
+                          <Chip cls={enabled ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-white/5 text-zinc-500 border-white/10"}>
+                            {enabled ? "Tampil" : "Disembunyikan"}
+                          </Chip>
+                          <button onClick={() => editPayMethod(m)} disabled={loading} className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:bg-white/5 disabled:opacity-50" title="Edit">
+                            <Save className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => togglePayMethod(m, !enabled)}
+                            disabled={loading}
+                            className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${enabled ? "" : "bg-zinc-700"}`}
+                            style={enabled ? { backgroundColor: ACCENT } : {}}
+                            title={enabled ? "Sembunyikan" : "Tampilkan"}
+                          >
+                            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${enabled ? "left-6" : "left-1"}`} />
+                          </button>
+                          <button onClick={() => deletePayMethod(m)} disabled={loading} className="w-8 h-8 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-500/10 disabled:opacity-50" title="Hapus">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}

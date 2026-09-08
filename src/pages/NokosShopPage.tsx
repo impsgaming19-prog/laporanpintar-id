@@ -64,6 +64,8 @@ import {
   apiShopRegisterOwner,
   apiShopSetServerEnabled,
   apiShopWallet,
+  apiGetPaymentConfig,
+  apiManualDepositCreate,
   computeSellPrice,
   formatRupiah,
   type AdminDeposit,
@@ -71,6 +73,7 @@ import {
   type AdminStats,
   type AdminUser,
   type Country,
+  type PayMethod,
   type ProviderId,
   type Service,
   type ShopOrder,
@@ -129,7 +132,7 @@ const SERVER_LIST: ServerDef[] = [
     provider: "ditznesia",
     providerLabel: "Ditznesia",
     description:
-      "Terhubung langsung ke API Ditznesia v1. Data negara & layanan live dari server.",
+      "Server 3 (API Ditznesia v1). Data negara & layanan live dari server.",
     badge: null,
   },
   {
@@ -147,7 +150,7 @@ const SERVER_LIST: ServerDef[] = [
     provider: "ditznesia_v2",
     providerLabel: "Ditznesia API v2",
     description:
-      "Server tambahan (Ditznesia API v2). Aktif bila kunci API server ini diisi.",
+      "Server 4 (API Ditznesia v2). Otomatis memakai kunci API akun Ditznesia yang sama dengan server v1.",
     badge: "Baru",
   },
 ];
@@ -161,6 +164,324 @@ const roleMeta: Record<string, { label: string; cls: string }> = {
 const CANCEL_MIN_SECONDS = 120;
 
 type PayPhase = "idle" | "processing" | "waitingOtp" | "success" | "error";
+
+const DEPOSIT_PRESETS = [10000, 25000, 50000, 100000, 250000, 500000];
+
+/* =====================================================================
+ * SHEET ISI SALDO — QR Paymentku (otomatis) + Isi Manual (QR/Bank/E-Wallet)
+ * ===================================================================== */
+function DepositSheet({
+  open,
+  userId,
+  initialAmount,
+  onClose,
+  onBalance,
+}: {
+  open: boolean;
+  userId: string;
+  initialAmount?: number;
+  onClose: () => void;
+  onBalance: (balance: number) => void;
+}) {
+  const [amount, setAmount] = useState(initialAmount && initialAmount >= 5000 ? initialAmount : 25000);
+  const [cfg, setCfg] = useState<{ paykuEnabled: boolean; methods: PayMethod[] } | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [refId, setRefId] = useState<string | null>(null);
+  const [manualId, setManualId] = useState<string | null>(null);
+  const [manualNote, setManualNote] = useState("");
+  const pollingRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setAmount(initialAmount && initialAmount >= 5000 ? initialAmount : 25000);
+    setStatus(null);
+    setError(null);
+    setRefId(null);
+    setManualId(null);
+    setManualNote("");
+    setBusy(false);
+    let cancelled = false;
+    apiGetPaymentConfig()
+      .then((r) => {
+        if (!cancelled) setCfg({ paykuEnabled: r.paykuEnabled !== false, methods: r.methods || [] });
+      })
+      .catch(() => {
+        if (!cancelled) setCfg({ paykuEnabled: true, methods: [] });
+      });
+    return () => {
+      cancelled = true;
+      pollingRef.current = false;
+    };
+  }, [open, initialAmount]);
+
+  const startQris = async () => {
+    setBusy(true);
+    setError(null);
+    setStatus("Membuat invoice QR Paymentku...");
+    try {
+      const inv = await apiShopDepositCreate(userId, amount);
+      if (!inv.ok || !inv.payUrl || !inv.referenceId) {
+        setError(inv.error || "Gagal membuat QR deposit.");
+        setStatus(null);
+        return;
+      }
+      setRefId(inv.referenceId);
+      try {
+        window.open(inv.payUrl, "_blank", "noopener");
+      } catch {
+        /* popup diblokir — pengguna tetap bisa buka manual */
+      }
+      setStatus(`QR deposit dibuka di tab baru (Ref: ${inv.referenceId}). Bayar Rp ${formatRupiah(inv.amount || amount)} — saldo masuk otomatis begitu lunas.`);
+      pollingRef.current = true;
+      for (let i = 0; i < 30 && pollingRef.current; i++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const st = await apiShopDepositPoll(inv.referenceId).catch(() => null);
+        if (!st) continue;
+        if (st.paid) {
+          pollingRef.current = false;
+          setStatus("Pembayaran diterima — saldo sudah masuk ke akun kamu. 🎉");
+          if (st.balance != null) onBalance(st.balance);
+          break;
+        }
+      }
+      if (pollingRef.current) {
+        pollingRef.current = false;
+        setStatus("Waktu cek habis. Kalau sudah membayar, tekan 'Cek Pembayaran Lagi'.");
+      }
+    } catch (err: any) {
+      pollingRef.current = false;
+      setError(err?.message || "Gagal membuat QR deposit.");
+      setStatus(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const checkAgain = async () => {
+    if (!refId) return;
+    setBusy(true);
+    setError(null);
+    setStatus("Mengecek pembayaran...");
+    const st = await apiShopDepositPoll(refId).catch(() => null);
+    if (st?.paid) {
+      setStatus("Pembayaran diterima — saldo sudah masuk ke akun kamu. 🎉");
+      if (st.balance != null) onBalance(st.balance);
+    } else {
+      setStatus("Belum terdeteksi lunas. Pastikan QR sudah dibayar, lalu coba lagi.");
+    }
+    setBusy(false);
+  };
+
+  const submitManual = async () => {
+    const method = cfg?.methods.find((m) => m.id === manualId);
+    if (!method) {
+      setError("Pilih metode pembayaran dulu.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await apiManualDepositCreate(userId, amount, method.id, manualNote.trim() || undefined);
+      if (!res.ok || !res.referenceId) {
+        setError(res.error || "Gagal mengirim konfirmasi. Coba lagi.");
+        return;
+      }
+      setManualId(null);
+      setManualNote("");
+      setStatus(
+        `Konfirmasi terkirim (Ref: ${res.referenceId}). Pembayaran Rp ${formatRupiah(res.amount || amount)} lewat ${res.methodLabel || method.label} akan dicek admin/CS — saldo masuk setelah disetujui. Kalau lama, hubungi CS.`
+      );
+    } catch (err: any) {
+      setError(err?.message || "Gagal mengirim konfirmasi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 60, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 60, opacity: 0 }}
+        className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 max-h-[88vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <Wallet className="w-5 h-5" style={{ color: ACCENT }} /> Isi Saldo
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400">
+            ✕
+          </button>
+        </div>
+
+        <p className="text-[13px] text-zinc-400 mb-4 leading-relaxed">
+          Pilih nominal, lalu bayar via <b className="text-white">QR Paymentku</b> (saldo masuk otomatis) atau{" "}
+          <b className="text-white">Isi Manual QR / Bank / E-Wallet</b> (dikonfirmasi admin/CS sebelum saldo masuk).
+        </p>
+
+        {!cfg && (
+          <p className="text-[13px] text-zinc-400 mb-3 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Memuat pilihan pembayaran...
+          </p>
+        )}
+
+        {status && (
+          <p className="text-[13px] text-zinc-300 leading-relaxed mb-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">{status}</p>
+        )}
+        {error && (
+          <p className="text-[13px] text-red-300 leading-relaxed mb-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">{error}</p>
+        )}
+
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {DEPOSIT_PRESETS.map((nominal) => (
+            <button
+              key={nominal}
+              onClick={() => setAmount(nominal)}
+              className={`rounded-xl px-2 py-3 text-sm font-semibold transition-all border ${
+                amount === nominal ? "border-red-500 bg-red-600/10 text-white" : "border-white/10 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+              }`}
+            >
+              Rp {formatRupiah(nominal)}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 mb-5">
+          <span className="text-[13px] text-zinc-400">Rp</span>
+          <input
+            type="number"
+            min={5000}
+            step={1000}
+            value={amount}
+            onChange={(e) => setAmount(Math.max(5000, Number(e.target.value) || 0))}
+            className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-white text-sm focus:border-red-500 focus:outline-none"
+          />
+        </div>
+
+        {cfg && cfg.paykuEnabled && (
+          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 mb-3">
+            <p className="text-[13px] font-bold text-white flex items-center gap-2 mb-1">
+              <QrCode className="w-4 h-4" style={{ color: ACCENT }} /> QRIS Paymentku — otomatis
+            </p>
+            <p className="text-[12px] text-zinc-400 mb-3">Begitu pembayaran lunas, saldo langsung masuk tanpa konfirmasi.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={startQris}
+                disabled={busy || amount < 5000}
+                className="flex-1 py-3 rounded-xl text-sm font-bold text-black hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                style={{ backgroundColor: ACCENT }}
+              >
+                {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Memproses...</> : <><QrCode className="w-4 h-4" /> Buat QR & Isi Saldo</>}
+              </button>
+              {refId && !busy && (
+                <button onClick={checkAgain} className="px-4 py-3 rounded-xl text-sm font-semibold border border-white/15 text-zinc-200 hover:bg-white/5 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4" /> Cek Lagi
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {cfg && cfg.methods.length > 0 && (
+          <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4">
+            <p className="text-[13px] font-bold text-white flex items-center gap-2 mb-2">
+              <Wallet className="w-4 h-4" style={{ color: ACCENT }} /> Isi Manual (QR/Bank/E-Wallet)
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {cfg.methods.map((m) => {
+                const active = manualId === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setManualId(active ? null : m.id);
+                      setError(null);
+                      setStatus(null);
+                    }}
+                    className={`px-3 py-2 rounded-xl text-[12.5px] font-semibold border transition-all ${active ? "text-black" : "border-white/10 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
+                    style={active ? { backgroundColor: ACCENT } : {}}
+                  >
+                    {m.type === "qr" ? "◈ QR" : m.type === "bank" ? "🏦 Bank" : "📱 E-Wallet"} · {m.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {(() => {
+              const m = cfg.methods.find((x) => x.id === manualId);
+              if (!m) return null;
+              return (
+                <div className="space-y-3">
+                  <div className="rounded-xl bg-white/5 border border-white/10 px-4 py-3">
+                    {m.imageUrl ? (
+                      <div className="flex justify-center mb-2">
+                        <img src={m.imageUrl} alt="QR" className="w-40 h-40 object-contain rounded-lg bg-white p-1" />
+                      </div>
+                    ) : null}
+                    <p className="text-[12px] text-zinc-400">
+                      {m.type === "qr" ? "Scan / bayar ke QR ini" : m.type === "bank" ? "Transfer ke rekening:" : "Bayar ke E-Wallet:"}
+                    </p>
+                    <p className="text-[15px] font-black text-white tracking-wide select-all mt-0.5">{m.accountNo}</p>
+                    <p className="text-[12px] text-zinc-400 mt-0.5">a.n. {m.accountName}</p>
+                    <button
+                      onClick={() => {
+                        try {
+                          navigator.clipboard.writeText(m.accountNo);
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 text-zinc-200 hover:bg-white/5"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Salin Nomor
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={manualNote}
+                    onChange={(e) => setManualNote(e.target.value)}
+                    placeholder="Nama pengirim / catatan (opsional, biar cepat dicek)"
+                    className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-white text-sm placeholder:text-zinc-500 focus:border-red-500 focus:outline-none"
+                  />
+                  <button
+                    onClick={submitManual}
+                    disabled={busy || amount < 5000}
+                    className="w-full py-3 rounded-xl text-sm font-bold text-black hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                    style={{ backgroundColor: ACCENT }}
+                  >
+                    {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Mengirim...</> : <><CheckCircle2 className="w-4 h-4" /> Saya sudah bayar — minta saldo masuk</>}
+                  </button>
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    Setelah kamu kirim, admin/CS mencocokkan pembayaran lalu menekan Terima — saldo masuk ke akunmu.
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {cfg && !cfg.paykuEnabled && cfg.methods.length === 0 && (
+          <p className="text-[13px] text-zinc-400 leading-relaxed rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+            Pembayaran sedang dinonaktifkan sementara. Hubungi CS untuk isi saldo.
+          </p>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
 
 /* ===================================================================== */
 export default function NokosShopPage() {
@@ -205,12 +526,48 @@ export default function NokosShopPage() {
 
   /* ---------- deposit modal ---------- */
   const [depositOpen, setDepositOpen] = useState(false);
+  // Sheet isi saldo baru (Paymentku + Isi Manual). depositOpen lama tidak dipakai lagi.
+  const [depositSheetOpen, setDepositSheetOpen] = useState(false);
+  const [depositSheetAmount, setDepositSheetAmount] = useState(25000);
   const [depositAmount, setDepositAmount] = useState(25000);
   const [depositBusy, setDepositBusy] = useState(false);
   const [depositStatus, setDepositStatus] = useState<string | null>(null);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositRef, setDepositRef] = useState<string | null>(null);
   const depositPolling = useRef(false);
+
+  /* ---------- metode pembayaran (Paymentku + isi manual) ---------- */
+  const [payConfig, setPayConfig] = useState<{ paykuEnabled: boolean; methods: PayMethod[] } | null>(null);
+  const [manualMethodId, setManualMethodId] = useState<string | null>(null);
+  const [manualNote, setManualNote] = useState("");
+  const [manualBusy, setManualBusy] = useState(false);
+
+  /* ---------- muat pengaturan pembayaran & reset tiap buka modal ---------- */
+  useEffect(() => {
+    if (!depositOpen) return;
+    let cancelled = false;
+    setDepositError(null);
+    setDepositStatus(null);
+    setDepositRef(null);
+    setManualMethodId(null);
+    setManualNote("");
+    apiGetPaymentConfig()
+      .then((r) => {
+        if (cancelled) return;
+        setPayConfig({
+          paykuEnabled: r.paykuEnabled !== false,
+          methods: r.methods || [],
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Kalau gagal dibaca, tetap tampilkan Paymentku (perilaku lama) biar tidak macet.
+        setPayConfig({ paykuEnabled: true, methods: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [depositOpen]);
 
   /* ---------- kode promo / voucher & referral ---------- */
   const [promoCode, setPromoCode] = useState("");
@@ -528,7 +885,8 @@ export default function NokosShopPage() {
     const bal = walletBalance ?? 0;
     if (bal < sellPrice) {
       setDepositAmount(Math.max(5000, sellPrice));
-      setDepositOpen(true);
+      setDepositSheetAmount(Math.max(5000, sellPrice));
+      setDepositSheetOpen(true);
       setPayError(`Saldo kamu Rp ${formatRupiah(bal)}, kurang untuk layanan ini (Rp ${formatRupiah(sellPrice)}). Silakan isi saldo dulu.`);
       setPayPhase("error");
       return;
@@ -561,8 +919,13 @@ export default function NokosShopPage() {
 
       if (res.balance != null) setWalletBalance(res.balance);
       setResultOrderId(res.orderId);
+      if (res.number) setResultPhone(res.number);
       setPayPhase("waitingOtp");
-      setPayMessage("Nomor dipesan! Menunggu OTP masuk (bisa ±1–5 menit)...");
+      setPayMessage(
+        res.number
+          ? `✅ Nomor kamu: ${res.number} — pakai nomor ini untuk verifikasi, lalu tunggu OTP masuk (±1–5 menit).`
+          : "Nomor dipesan! Menunggu OTP masuk (bisa ±1–5 menit)..."
+      );
 
       // Polling OTP (maks ±2 menit di layar ini)
       let otp: string | null = null;
@@ -676,6 +1039,35 @@ export default function NokosShopPage() {
       setDepositStatus("Belum terdeteksi lunas. Pastikan QR sudah dibayar, lalu coba lagi.");
     }
     setDepositBusy(false);
+  };
+
+  /* ---------- isi saldo MANUAL (QR/Bank/E-Wallet, menunggu konfirmasi admin) ---------- */
+  const submitManualDeposit = async () => {
+    if (!session || !manualMethodId) return;
+    const method = payConfig?.methods.find((m) => m.id === manualMethodId);
+    if (!method) {
+      setDepositError("Pilih metode pembayaran dulu.");
+      return;
+    }
+    setManualBusy(true);
+    setDepositError(null);
+    setDepositStatus(null);
+    try {
+      const res = await apiManualDepositCreate(session.user.id, depositAmount, method.id, manualNote.trim() || undefined);
+      if (!res.ok || !res.referenceId) {
+        setDepositError(res.error || "Gagal mengirim konfirmasi. Coba lagi.");
+        return;
+      }
+      setManualMethodId(null);
+      setManualNote("");
+      setDepositStatus(
+        `Konfirmasi terkirim (Ref: ${res.referenceId}). Pembayaran Rp ${formatRupiah(res.amount || depositAmount)} lewat ${res.methodLabel || method.label} akan dicek admin/CS — saldo masuk setelah disetujui. Kalau lama, hubungi CS.`
+      );
+    } catch (err: any) {
+      setDepositError(err?.message || "Gagal mengirim konfirmasi.");
+    } finally {
+      setManualBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -897,6 +1289,18 @@ export default function NokosShopPage() {
         animate={{ x: [0, -60, 0], y: [0, -50, 0], scale: [1.1, 0.95, 1.1] }}
         transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
       />
+      {depositSheetOpen && session && (
+        <DepositSheet
+          open={depositSheetOpen}
+          userId={session.user.id}
+          initialAmount={depositSheetAmount}
+          onClose={() => setDepositSheetOpen(false)}
+          onBalance={(balance) => {
+            setWalletBalance(balance);
+            refreshWalletOrders(session.user.id).catch(() => {});
+          }}
+        />
+      )}
       {adminHubOpen && session && isAdmin && (
         <AdminHub
           user={session.user}
@@ -954,7 +1358,7 @@ export default function NokosShopPage() {
               <span className="text-sm font-bold">Rp {formatRupiah(walletBalance ?? 0)}</span>
             </div>
             <button
-              onClick={() => setDepositOpen(true)}
+              onClick={() => setDepositSheetOpen(true)}
               className="px-3.5 py-2 rounded-xl text-sm font-semibold shadow-lg transition-all hover:brightness-110 active:scale-[0.98] flex items-center gap-2"
               style={{ backgroundColor: ACCENT, color: DARK }}
             >
@@ -1029,7 +1433,7 @@ export default function NokosShopPage() {
                   Beli Nomor <ArrowRightCircle className="w-4 h-4" />
                 </motion.a>
                 <motion.button
-                  onClick={() => setDepositOpen(true)}
+                  onClick={() => setDepositSheetOpen(true)}
                   whileHover={{ y: -1, scale: 1.01 }}
                   whileTap={{ y: 1, scale: 0.97 }}
                   className="px-5 py-3 rounded-xl text-white text-sm font-medium border border-white/20 flex items-center gap-2"

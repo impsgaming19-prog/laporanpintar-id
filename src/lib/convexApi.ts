@@ -184,6 +184,7 @@ export async function apiCreateNumberOrder(opts: {
 export async function apiGetOrderStatus(provider: ProviderId, orderId: string): Promise<{
   ok?: boolean;
   code?: string | number | null;
+  number?: string | null;
   error?: string;
   raw?: unknown;
 }> {
@@ -211,6 +212,7 @@ export type ShopOrder = {
   sellPrice: number;
   status: string;
   otp: string | null;
+  number: string | null;
   error: string | null;
   createdAt: number;
 };
@@ -294,6 +296,7 @@ export async function apiShopBuyWithBalance(opts: {
   provider?: string;
   sellPrice?: number;
   balance?: number;
+  number?: string | null;
   refunded?: boolean;
   error?: string;
 }> {
@@ -394,6 +397,10 @@ export type AdminDeposit = {
   referenceId: string;
   amount: number;
   status: string;
+  channel?: string;
+  methodLabel?: string | null;
+  methodDetail?: string | null;
+  note?: string | null;
   createdAt: number;
   paidAt: number | null;
 };
@@ -543,6 +550,117 @@ export async function apiAdminDeposits(actorId: string): Promise<{ ok: boolean; 
   return callAction("shop:adminDeposits", { actorId });
 }
 
+export type PayMethodType = "qr" | "bank" | "ewallet";
+
+export type PayMethod = {
+  id: string;
+  type: PayMethodType;
+  label: string;
+  accountName: string;
+  accountNo: string;
+  imageUrl?: string;
+  enabled: boolean;
+};
+
+/** Pengaturan pembayaran publik (hanya yang aktif): QRIS Paymentku + metode isi manual. */
+export async function apiGetPaymentConfig(): Promise<{
+  ok: boolean;
+  paykuEnabled?: boolean;
+  methods?: PayMethod[];
+  error?: string;
+}> {
+  return callAction("shop:getPaymentConfig", {});
+}
+
+/** Pengaturan pembayaran lengkap untuk panel Owner. */
+export async function apiAdminPaymentConfig(actorId: string): Promise<{
+  ok: boolean;
+  paykuEnabled?: boolean;
+  methods?: PayMethod[];
+  error?: string;
+}> {
+  return callAction("shop:adminPaymentConfig", { actorId });
+}
+
+/** Owner menampilkan/menyembunyikan menu Paymentku QRIS. */
+export async function apiAdminSetPaymentkuEnabled(
+  actorId: string,
+  enabled: boolean
+): Promise<{ ok: boolean; paykuEnabled?: boolean; error?: string }> {
+  return callAction("shop:adminSetPaymentkuEnabled", { actorId, enabled });
+}
+
+/** Owner menambah/memperbarui metode isi manual (QR/Bank/E-Wallet). */
+export async function apiAdminSavePaymentMethod(
+  actorId: string,
+  m: { id?: string; type: PayMethodType; label: string; accountName: string; accountNo: string; imageUrl?: string }
+): Promise<{ ok: boolean; method?: PayMethod; methods?: PayMethod[]; error?: string }> {
+  return callAction("shop:adminSavePaymentMethod", {
+    actorId,
+    id: m.id ?? undefined,
+    type: m.type,
+    label: m.label,
+    accountName: m.accountName,
+    accountNo: m.accountNo,
+    imageUrl: m.imageUrl ?? undefined,
+  });
+}
+
+/** Owner menyalakan/mematikan satu metode isi manual. */
+export async function apiAdminTogglePaymentMethod(
+  actorId: string,
+  id: string,
+  enabled: boolean
+): Promise<{ ok: boolean; methods?: PayMethod[]; error?: string }> {
+  return callAction("shop:adminTogglePaymentMethod", { actorId, id, enabled });
+}
+
+/** Owner menghapus metode isi manual. */
+export async function apiAdminDeletePaymentMethod(
+  actorId: string,
+  id: string
+): Promise<{ ok: boolean; methods?: PayMethod[]; error?: string }> {
+  return callAction("shop:adminDeletePaymentMethod", { actorId, id });
+}
+
+/** Customer kirim permintaan isi saldo manual (sudah transfer) → menunggu konfirmasi admin. */
+export async function apiManualDepositCreate(
+  userId: string,
+  amount: number,
+  methodId: string,
+  note?: string
+): Promise<{
+  ok: boolean;
+  referenceId?: string;
+  amount?: number;
+  methodLabel?: string;
+  methodDetail?: string;
+  error?: string;
+}> {
+  return callAction("shop:manualDepositCreate", {
+    userId,
+    amount,
+    methodId,
+    note: note ?? undefined,
+  });
+}
+
+/** Admin/CS setujui deposit manual → saldo masuk ke customer. */
+export async function apiAdminDepositSettle(
+  actorId: string,
+  referenceId: string
+): Promise<{ ok: boolean; amount?: number; balance?: number; bonus?: number; error?: string }> {
+  return callAction("shop:adminDepositSettle", { actorId, referenceId });
+}
+
+/** Admin/CS tolak deposit manual. */
+export async function apiAdminDepositReject(
+  actorId: string,
+  referenceId: string
+): Promise<{ ok: boolean; error?: string }> {
+  return callAction("shop:adminDepositReject", { actorId, referenceId });
+}
+
 /** Refund manual oleh Owner/CS (ditolak bila OTP sudah masuk). */
 export async function apiAdminRefundOrder(
   actorId: string,
@@ -572,7 +690,7 @@ export async function apiShopRecordOtp(
 export async function apiShopCheckMyOrder(
   userId: string,
   orderId: string
-): Promise<{ ok: boolean; status?: string; otp?: string | null; error?: string }> {
+): Promise<{ ok: boolean; status?: string; otp?: string | null; number?: string | null; error?: string }> {
   return callAction("shop:checkMyOrder", { userId, orderId });
 }
 

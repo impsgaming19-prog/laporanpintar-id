@@ -38,7 +38,7 @@ function envKey(...names: string[]): string {
   return "";
 }
 
-type P = { key: string; label: string; baseEnv: string; def: string; auth: "header" | "query" };
+type P = { key: string; altKey?: string; label: string; baseEnv: string; def: string; auth: "header" | "query" };
 
 const PROVIDERS: Record<string, P> = {
   kirimkode: {
@@ -50,6 +50,8 @@ const PROVIDERS: Record<string, P> = {
   },
   ditznesia: {
     key: "NOKOS_DITZNESIA_API_KEY",
+    // 1 kunci akun Ditznesia berlaku untuk API v1 (server 3) DAN v2 (server 4).
+    altKey: "NOKOS_DITZNESIA_API2_KEY",
     label: "Ditznesia",
     baseEnv: "NOKOS_DITZNESIA_API_URL",
     def: DITZNESIA_BASE_DEFAULT,
@@ -57,6 +59,7 @@ const PROVIDERS: Record<string, P> = {
   },
   ditznesia_v2: {
     key: "NOKOS_DITZNESIA_API2_KEY",
+    altKey: "NOKOS_DITZNESIA_API_KEY",
     label: "Ditznesia API v2",
     baseEnv: "NOKOS_DITZNESIA_API2_URL",
     def: DITZNESIA2_BASE_DEFAULT,
@@ -67,7 +70,8 @@ const PROVIDERS: Record<string, P> = {
 function providerCfg(provider: string): (P & { apiKey: string; base: string }) | null {
   const p = PROVIDERS[provider];
   if (!p) return null;
-  const apiKey = envKey(p.key);
+  // Kunci versi ini dulu; kalau kosong pakai kunci versi lainnya (satu akun = satu kunci).
+  const apiKey = p.altKey ? envKey(p.key, p.altKey) : envKey(p.key);
   const base = (process.env[p.baseEnv] || p.def).trim().replace(/\/+$/, "");
   if (!apiKey || !base) return null;
   return { ...p, apiKey, base };
@@ -99,16 +103,29 @@ function withAuth(cfg: P & { apiKey: string; base: string }, url: string): { url
 }
 
 /** Ambil OTP dari provider untuk satu id order (kirimkode: /order/{id}/status, ditznesia: /sms.php). */
-async function fetchOtp(cfg: P & { apiKey: string; base: string }, orderId: string): Promise<string | null> {
+async function fetchOtp(
+  cfg: P & { apiKey: string; base: string },
+  orderId: string
+): Promise<{ code: string | null; number: string | null }> {
   const id = encodeURIComponent(orderId);
   const path = cfg.auth === "header" ? `/order/${id}/status` : `/sms.php?id=${id}&id_order=${id}`;
   const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
   const { ok, json } = await fetchJson(url, { headers });
-  if (!ok) return null;
+  if (!ok) return { code: null, number: null };
   const data = (json && json.data) || json || {};
   const code = data.code ?? data.otp ?? data.sms ?? null;
-  if (code != null && String(code).trim() !== "") return String(code).trim().slice(0, 40);
-  return null;
+  const num =
+    data.phone ??
+    data.phone_number ??
+    data.nohp ??
+    data.number ??
+    data.nomor ??
+    data.mobile ??
+    data.phoneNumber ??
+    null;
+  const number = num != null && String(num).trim() !== "" && String(num) !== "null" ? String(num).trim().slice(0, 40) : null;
+  if (code != null && String(code).trim() !== "") return { code: String(code).trim().slice(0, 40), number };
+  return { code: null, number };
 }
 
 /** Batalkan order di provider (best-effort — kalau gagal tidak masalah, saldo customer tetap dikembalikan). */
@@ -145,13 +162,17 @@ export const watchOtp = internalAction({
       const cfg = providerCfg(row.provider);
       if (cfg) {
         const last = await fetchOtp(cfg, row.orderId);
-        if (last) {
+        if (last && last.code) {
           await ctx.runMutation(I.wallet.setOrderResult, {
             orderId: row.orderId,
-            otp: last,
+            otp: last.code,
+            number: last.number || undefined,
             status: "otp",
           });
           return { ok: true, reason: "otp-found-last" };
+        }
+        if (last && last.number && !row.number) {
+          await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, number: last.number });
         }
         await cancelAtProvider(cfg, row.orderId);
       }
@@ -169,10 +190,18 @@ export const watchOtp = internalAction({
 
     const cfg = providerCfg(row.provider);
     if (cfg) {
-      const code = await fetchOtp(cfg, row.orderId);
-      if (code) {
-        await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, otp: code, status: "otp" });
+      const live = await fetchOtp(cfg, row.orderId);
+      if (live.code) {
+        await ctx.runMutation(I.wallet.setOrderResult, {
+          orderId: row.orderId,
+          otp: live.code,
+          number: live.number || undefined,
+          status: "otp",
+        });
         return { ok: true, reason: "otp-found" };
+      }
+      if (live.number && !row.number) {
+        await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, number: live.number });
       }
     }
 

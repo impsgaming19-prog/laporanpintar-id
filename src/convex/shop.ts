@@ -131,6 +131,38 @@ function extractErrorMessage(json: any, text: string, fallback: string): string 
   return text && text.trim() ? text.slice(0, 300) : fallback;
 }
 
+/**
+ * HTTP 500 dari API OTP (Ditznesia/jasaotp) biasanya bukan error server —
+ * API ini mengembalikan HTTP 500 polos (tanpa isi) saat kunci salah / tidak
+ * terdaftar / akun tidak dikenali. Jelaskan ke user supaya tidak bingung.
+ */
+function explainHttpFailure(label: string, status: number, json: any, text: string): string {
+  if (status === 500) {
+    return (
+      `${label} menjawab HTTP 500 (kunci API salah / tidak terdaftar di server ini, atau akun sedang bermasalah). ` +
+      "Cek Api Key di dashboard provider & pastikan kunci dipasang di Keys project dengan nama yang benar."
+    );
+  }
+  return extractErrorMessage(json, text, `${label}: HTTP ${status}`);
+}
+
+/** Ambil nomor telepon/order dari respons provider (kalau dikirim). */
+function extractNumberField(data: any): string | null {
+  if (!data || typeof data !== "object") return null;
+  const v =
+    data.phone ??
+    data.phone_number ??
+    data.nohp ??
+    data.number ??
+    data.nomor ??
+    data.mobile ??
+    data.phoneNumber ??
+    data.no;
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s && s !== "" && s !== "null" && s !== "undefined" ? s.slice(0, 40) : null;
+}
+
 /* =====================================================================
  * PAYMENTKU (deposit / pembayaran customer) — QRIS only
  * ===================================================================== */
@@ -229,6 +261,7 @@ type Provider = "kirimkode" | "ditznesia" | "ditznesia_v2";
 type ProviderConfig = {
   label: string;
   keyEnv: string;
+  altKeyEnv?: string;
   baseEnv: string;
   defaultBase: string;
   auth: "header" | "query";
@@ -253,6 +286,9 @@ const PROVIDERS: Record<Provider, ProviderConfig> = {
   ditznesia: {
     label: "Ditznesia",
     keyEnv: "NOKOS_DITZNESIA_API_KEY",
+    // 1 kunci akun Ditznesia berlaku untuk API v1 (server 3) DAN v2 (server 4),
+    // jadi kalau kunci versi satunya tidak diisi, pakai yang ini juga.
+    altKeyEnv: "NOKOS_DITZNESIA_API2_KEY",
     baseEnv: "NOKOS_DITZNESIA_API_URL",
     defaultBase: DITZNESIA_BASE_DEFAULT,
     auth: "query",
@@ -260,6 +296,7 @@ const PROVIDERS: Record<Provider, ProviderConfig> = {
   ditznesia_v2: {
     label: "Ditznesia API v2",
     keyEnv: "NOKOS_DITZNESIA_API2_KEY",
+    altKeyEnv: "NOKOS_DITZNESIA_API_KEY",
     baseEnv: "NOKOS_DITZNESIA_API2_URL",
     defaultBase: DITZNESIA2_BASE_DEFAULT,
     auth: "query",
@@ -269,7 +306,9 @@ const PROVIDERS: Record<Provider, ProviderConfig> = {
 function providerConfig(provider: string): ResolvedProviderConfig | null {
   const cfg = PROVIDERS[provider as Provider];
   if (!cfg) return null;
-  const apiKey = envKey(cfg.keyEnv);
+  // Satu kunci akun Ditznesia dipakai di API v1 (api.ditznesia.com) dan v2
+  // (api.jasaotp.id). Kalau kunci khusus versi ini kosong, pakai kunci versi lain.
+  const apiKey = cfg.altKeyEnv ? envKey(cfg.keyEnv, cfg.altKeyEnv) : envKey(cfg.keyEnv);
   const base = (process.env[cfg.baseEnv] || cfg.defaultBase).trim().replace(/\/+$/, "");
   if (!apiKey) return null;
   if (!base) return null;
@@ -306,7 +345,8 @@ export const getOrderStatus = action({
     }
     const data = (json && json.data) || json || {};
     const code = data.code ?? data.otp ?? data.sms ?? null;
-    return { ok: true, provider: cfg.label, orderId: args.orderId, code, raw: json };
+    const number = extractNumberField(data);
+    return { ok: true, provider: cfg.label, orderId: args.orderId, code, number, raw: json };
   },
 });
 
@@ -479,9 +519,15 @@ async function placeProviderOrder(opts: {
 }): Promise<Record<string, unknown>> {
   const cfg = providerConfig(opts.provider);
   if (!cfg) {
+    const needed =
+      opts.provider === "kirimkode"
+        ? "NOKOS_KIRIMKODE_API_KEY"
+        : opts.provider === "ditznesia"
+          ? "NOKOS_DITZNESIA_API_KEY"
+          : "NOKOS_DITZNESIA_API2_KEY atau NOKOS_DITZNESIA_API_KEY (satu kunci akun cukup untuk kedua versi API)";
     return {
       ok: false,
-      error: `Kunci/URL untuk ${opts.provider} belum diatur di Keys/Environment (${opts.provider === "kirimkode" ? "NOKOS_KIRIMKODE_API_KEY" : opts.provider === "ditznesia" ? "NOKOS_DITZNESIA_API_KEY" : "NOKOS_DITZNESIA_API2_KEY"}).`,
+      error: `Kunci/URL untuk ${opts.provider} belum diatur di Keys/Environment (${needed}).`,
     };
   }
 
@@ -492,6 +538,7 @@ async function placeProviderOrder(opts: {
   const operator = opts.operator != null ? String(opts.operator) : "any";
 
   let orderId: string | null = null;
+  let numberValue: string | null = null;
   let raw: any = null;
   let err: { ok: false; error: string } | null = null;
 
@@ -519,6 +566,7 @@ async function placeProviderOrder(opts: {
       raw = json;
       const data = (json && json.data) || json || {};
       orderId = data.id ?? data.order_id ?? data.orderId ?? null;
+      numberValue = extractNumberField(data);
     }
   } else {
     const params = new URLSearchParams({
@@ -534,7 +582,7 @@ async function placeProviderOrder(opts: {
     }
     const { ok, status, json, text } = await fetchJson(`${cfg.base}/order.php?${params.toString()}`);
     if (!ok) {
-      err = { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
+      err = { ok: false, error: explainHttpFailure(cfg.label, status, json, text) };
     } else {
       raw = json;
       const data = (json && json.data) || json || {};
@@ -545,6 +593,7 @@ async function placeProviderOrder(opts: {
         data.orderId ??
         data.trx_id ??
         null;
+      numberValue = extractNumberField(data);
     }
   }
 
@@ -564,6 +613,7 @@ async function placeProviderOrder(opts: {
     orderId: String(orderId),
     providerPrice,
     sellPrice,
+    number: numberValue,
     raw,
   };
 }
@@ -681,6 +731,7 @@ export const depositCreate = action({
       userId: args.userId,
       referenceId,
       amount,
+      channel: "paymentku",
     });
     return { ok: true, referenceId, amount, payUrl };
   },
@@ -773,6 +824,7 @@ export const buyWithBalance = action({
       orderId: String(order.orderId),
       sellPrice,
       providerPrice,
+      number: (order as any).number ?? undefined,
     });
 
     // #5 — cek OTP otomatis di latar belakang sampai masuk (±10 menit),
@@ -792,6 +844,7 @@ export const buyWithBalance = action({
       provider: order.provider,
       sellPrice,
       balance: charge.balance,
+      number: (order as any).number ?? null,
     };
   },
 });
@@ -817,15 +870,23 @@ async function ownerActor(ctx: any, actorId: string) {
 }
 
 /** Baca kode OTP / status terkini dari provider (untuk cek sebelum refund). */
-async function providerFetchCode(cfg: ResolvedProviderConfig, orderId: string): Promise<{ code: string | null; raw: any }> {
+async function providerFetchCode(
+  cfg: ResolvedProviderConfig,
+  orderId: string
+): Promise<{ code: string | null; number: string | null; raw: any }> {
   const id = encodeURIComponent(orderId);
   const path = cfg.auth === "header" ? `/order/${id}/status` : `/sms.php?id=${id}&id_order=${id}`;
   const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
   const { ok, json } = await fetchJson(url, { headers });
-  if (!ok) return { code: null, raw: json };
+  if (!ok) return { code: null, number: null, raw: json };
   const data = (json && json.data) || json || {};
   const code = data.code ?? data.otp ?? data.sms ?? null;
-  return { code: code != null && String(code) !== "" ? String(code) : null, raw: json };
+  const number = extractNumberField(data);
+  return {
+    code: code != null && String(code) !== "" ? String(code) : null,
+    number,
+    raw: json,
+  };
 }
 
 /** Batalkan order di sisi provider (best-effort — saldo tetap dikembalikan). */
@@ -994,8 +1055,16 @@ export const adminRefundOrder = action({
     if (cfg) {
       const live = await providerFetchCode(cfg, row.orderId);
       if (live.code) {
-        await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, otp: live.code, status: "otp" });
+        await ctx.runMutation(I.wallet.setOrderResult, {
+          orderId: row.orderId,
+          otp: live.code,
+          number: live.number || undefined,
+          status: "otp",
+        });
         return { ok: false, error: "OTP sudah masuk — tidak bisa refund.", otp: live.code };
+      }
+      if (live.number && !row.number) {
+        await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, number: live.number });
       }
       await providerCancelOrder(cfg, row.orderId).catch(() => ({ ok: false }));
     }
@@ -1036,8 +1105,16 @@ export const cancelOrder = action({
     if (cfg) {
       const live = await providerFetchCode(cfg, row.orderId);
       if (live.code) {
-        await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, otp: live.code, status: "otp" });
+        await ctx.runMutation(I.wallet.setOrderResult, {
+          orderId: row.orderId,
+          otp: live.code,
+          number: live.number || undefined,
+          status: "otp",
+        });
         return { ok: false, error: "OTP sudah masuk — tidak bisa dibatalkan/direfund.", otp: live.code };
+      }
+      if (live.number && !row.number) {
+        await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, number: live.number });
       }
       await providerCancelOrder(cfg, row.orderId).catch(() => ({ ok: false }));
     }
@@ -1074,10 +1151,18 @@ export const checkMyOrder = action({
     if (!cfg) return { ok: true, status: row.status, otp: null, error: "Kunci provider belum aktif." };
     const live = await providerFetchCode(cfg, row.orderId);
     if (live.code) {
-      await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, otp: live.code, status: "otp" });
-      return { ok: true, status: "otp", otp: live.code };
+      await ctx.runMutation(I.wallet.setOrderResult, {
+        orderId: row.orderId,
+        otp: live.code,
+        number: live.number || undefined,
+        status: "otp",
+      });
+      return { ok: true, status: "otp", otp: live.code, number: live.number || row.number || null };
     }
-    return { ok: true, status: row.status, otp: null, raw: live.raw };
+    if (live.number && !row.number) {
+      await ctx.runMutation(I.wallet.setOrderResult, { orderId: row.orderId, number: live.number });
+    }
+    return { ok: true, status: row.status, otp: null, number: row.number || live.number || null, raw: live.raw };
   },
 });
 
@@ -1134,5 +1219,265 @@ export const setServerEnabled = action({
     servers[args.serverKey] = args.enabled;
     await ctx.runMutation(I.wallet.setSettings, { key: "serverVisibility", value: servers });
     return { ok: true, servers };
+  },
+});
+
+/* =====================================================================
+ * METODE PEMBAYARAN (QRIS Paymentku otomatis + Isi Manual QR/Bank/E-Wallet)
+ *
+ * Pengaturan disimpan di nokosSettings:
+ *   paykuEnabled : boolean — tampilkan/tutup Paymentku QRIS otomatis
+ *   payMethods   : [{ id, type, label, accountName, accountNo, imageUrl?, enabled }]
+ * ===================================================================== */
+
+type PayMethodType = "qr" | "bank" | "ewallet";
+
+type PayMethod = {
+  id: string;
+  type: PayMethodType;
+  label: string;
+  accountName: string;
+  accountNo: string;
+  imageUrl?: string;
+  enabled: boolean;
+};
+
+const PAY_TYPE_LABEL: Record<string, string> = {
+  qr: "QR",
+  bank: "Transfer Bank",
+  ewallet: "E-Wallet",
+};
+
+function makeMethodId(): string {
+  const rand =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().slice(0, 6)
+      : Math.random().toString(36).slice(2, 8);
+  return `pay-${rand.toUpperCase()}`;
+}
+
+async function readPayConfig(ctx: any): Promise<{ paykuEnabled: boolean; methods: PayMethod[] }> {
+  const map = await ctx.runQuery(I.wallet.getSettings, {});
+  const paykuEnabled = map["paykuEnabled"] !== false;
+  const raw = map["payMethods"];
+  const methods: PayMethod[] = Array.isArray(raw)
+    ? (raw as PayMethod[]).filter((m) => m && typeof m === "object" && m.id)
+    : [];
+  return { paykuEnabled, methods };
+}
+
+function sanitizeMethod(input: {
+  id?: string;
+  type?: string;
+  label?: string;
+  accountName?: string;
+  accountNo?: string;
+  imageUrl?: string;
+  enabled?: boolean;
+}): { method?: PayMethod; error?: string } {
+  const type = (input.type || "qr").toLowerCase();
+  if (!["qr", "bank", "ewallet"].includes(type)) {
+    return { error: "Jenis metode harus QR / Bank / E-Wallet." };
+  }
+  const label = (input.label || "").trim();
+  const accountName = (input.accountName || "").trim();
+  const accountNo = (input.accountNo || "").trim();
+  if (!label || !accountName || !accountNo) {
+    return { error: "Lengkapi nama metode, nama pemilik, dan nomor/tujuan." };
+  }
+  const method: PayMethod = {
+    id: (input.id || "").trim() || makeMethodId(),
+    type: type as PayMethodType,
+    label: label.slice(0, 60),
+    accountName: accountName.slice(0, 80),
+    accountNo: accountNo.slice(0, 120),
+    enabled: input.enabled !== false,
+  };
+  if (input.imageUrl && String(input.imageUrl).trim()) {
+    method.imageUrl = String(input.imageUrl).trim().slice(0, 500);
+  }
+  return { method };
+}
+
+/** Pengaturan pembayaran publik — hanya yang AKTIF dikirim ke halaman beli. */
+export const getPaymentConfig = action({
+  args: {},
+  handler: async (ctx) => {
+    const { paykuEnabled, methods } = await readPayConfig(ctx);
+    const active = methods.filter((m) => m.enabled);
+    return { ok: true, paykuEnabled, methods: active };
+  },
+});
+
+/** Pengaturan pembayaran lengkap (khusus Owner — termasuk metode yang disembunyikan). */
+export const adminPaymentConfig = action({
+  args: { actorId: v.id("appUsers") },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    const { paykuEnabled, methods } = await readPayConfig(ctx);
+    return { ok: true, paykuEnabled, methods };
+  },
+});
+
+/** Owner menampilkan/menyembunyikan menu Paymentku QRIS (logika gateway tidak diubah). */
+export const adminSetPaymentkuEnabled = action({
+  args: { actorId: v.id("appUsers"), enabled: v.boolean() },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    await ctx.runMutation(I.wallet.setSettings, { key: "paykuEnabled", value: args.enabled });
+    return { ok: true, paykuEnabled: args.enabled };
+  },
+});
+
+/** Owner menambah / memperbarui metode isi manual (QR/Bank/E-Wallet). */
+export const adminSavePaymentMethod = action({
+  args: {
+    actorId: v.id("appUsers"),
+    id: v.optional(v.string()),
+    type: v.string(),
+    label: v.string(),
+    accountName: v.string(),
+    accountNo: v.string(),
+    imageUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    const { paykuEnabled, methods } = await readPayConfig(ctx);
+    const { method, error } = sanitizeMethod({
+      id: args.id ?? undefined,
+      type: args.type,
+      label: args.label,
+      accountName: args.accountName,
+      accountNo: args.accountNo,
+      imageUrl: args.imageUrl ?? undefined,
+      enabled: true,
+    });
+    if (error || !method) return { ok: false, error: error || "Metode tidak valid." };
+    const idx = methods.findIndex((m) => m.id === method.id);
+    if (idx >= 0) {
+      const old = methods[idx];
+      methods[idx] = { ...old, ...method, id: old.id, enabled: args.id ? old.enabled : true };
+    } else {
+      methods.push(method);
+    }
+    await ctx.runMutation(I.wallet.setSettings, { key: "payMethods", value: methods });
+    return { ok: true, method, methods };
+  },
+});
+
+/** Owner menyalakan/mematikan satu metode isi manual. */
+export const adminTogglePaymentMethod = action({
+  args: { actorId: v.id("appUsers"), id: v.string(), enabled: v.boolean() },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    const { paykuEnabled, methods } = await readPayConfig(ctx);
+    const m = methods.find((x) => x.id === args.id);
+    if (!m) return { ok: false, error: "Metode tidak ditemukan." };
+    m.enabled = args.enabled;
+    await ctx.runMutation(I.wallet.setSettings, { key: "payMethods", value: methods });
+    return { ok: true, method: m, methods };
+  },
+});
+
+/** Owner menghapus metode isi manual. */
+export const adminDeletePaymentMethod = action({
+  args: { actorId: v.id("appUsers"), id: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    const { paykuEnabled, methods } = await readPayConfig(ctx);
+    const next = methods.filter((x) => x.id !== args.id);
+    await ctx.runMutation(I.wallet.setSettings, { key: "payMethods", value: next });
+    return { ok: true, methods: next };
+  },
+});
+
+/**
+ * Customer kirim permintaan isi saldo MANUAL (sudah transfer lewat QR/Bank/
+ * E-Wallet). Saldo masuk SETELAH admin/CS mencocokkan & menekan "Terima".
+ */
+export const manualDepositCreate = action({
+  args: {
+    userId: v.id("appUsers"),
+    amount: v.number(),
+    methodId: v.string(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.runQuery(I.wallet.wallet, { userId: args.userId });
+    if (!user) return { ok: false, error: "Akun tidak ditemukan." };
+    const { methods } = await readPayConfig(ctx);
+    const method = methods.find((m) => m.id === args.methodId && m.enabled);
+    if (!method) return { ok: false, error: "Metode pembayaran tidak aktif. Pilih metode lain atau hubungi CS." };
+    const amount = Math.max(5000, Math.floor(args.amount));
+    if (amount > 100_000_000) return { ok: false, error: "Nominal terlalu besar." };
+    const referenceId = makeReferenceId("MNL");
+    const typeLabel = PAY_TYPE_LABEL[method.type] || method.type;
+    const methodDetail = [method.accountNo, method.accountName ? `a.n. ${method.accountName}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    await ctx.runMutation(I.wallet.recordDeposit, {
+      userId: args.userId,
+      referenceId,
+      amount,
+      channel: "manual",
+      methodId: method.id,
+      methodLabel: `${method.label} (${typeLabel})`,
+      methodDetail,
+      note: (args.note || "").trim().slice(0, 200) || undefined,
+    });
+    return {
+      ok: true,
+      referenceId,
+      amount,
+      methodLabel: method.label,
+      methodDetail,
+    };
+  },
+});
+
+/**
+ * Admin/CS mencocokkan pembayaran manual lalu menekan TERIMA — saldo masuk.
+ * Hanya bisa untuk deposit manual yang masih pending (bukan QRIS otomatis).
+ */
+export const adminDepositSettle = action({
+  args: { actorId: v.id("appUsers"), referenceId: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await staffActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Akses khusus Owner/CS." };
+    const dep: any = await ctx.runQuery(I.wallet.depositByReference, { referenceId: args.referenceId });
+    if (!dep) return { ok: false, error: "Deposit tidak ditemukan." };
+    if (dep.status !== "pending") {
+      return { ok: false, error: dep.status === "paid" ? "Deposit sudah lunas." : "Deposit ini bukan menunggu konfirmasi." };
+    }
+    if (dep.channel !== "manual") {
+      return { ok: false, error: "Deposit QRIS otomatis tidak perlu disetujui manual — cek pembayarannya lewat tombol Cek Lagi." };
+    }
+    const res = await ctx.runMutation(I.wallet.settleDeposit, { referenceId: args.referenceId });
+    if (!res.ok) return { ok: false, error: res.error || "Gagal menyetujui deposit." };
+    return { ok: true, amount: dep.amount, balance: res.balance, bonus: res.bonus };
+  },
+});
+
+/** Admin/CS menolak deposit manual (mis. bukti tidak cocok). */
+export const adminDepositReject = action({
+  args: { actorId: v.id("appUsers"), referenceId: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await staffActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Akses khusus Owner/CS." };
+    const dep: any = await ctx.runQuery(I.wallet.depositByReference, { referenceId: args.referenceId });
+    if (!dep) return { ok: false, error: "Deposit tidak ditemukan." };
+    if (dep.status !== "pending") {
+      return { ok: false, error: dep.status === "paid" ? "Deposit sudah lunas — tidak bisa ditolak." : "Deposit ini bukan menunggu konfirmasi." };
+    }
+    if (dep.channel !== "manual") {
+      return { ok: false, error: "Deposit QRIS otomatis tidak memakai menu tolak manual." };
+    }
+    const res = await ctx.runMutation(I.wallet.rejectDeposit, { referenceId: args.referenceId });
+    return res.ok ? { ok: true } : { ok: false, error: res.error || "Gagal menolak deposit." };
   },
 });

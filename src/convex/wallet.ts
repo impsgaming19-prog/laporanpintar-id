@@ -146,6 +146,7 @@ export const saveOrder = internalMutation({
     orderId: v.string(),
     sellPrice: v.number(),
     providerPrice: v.number(),
+    number: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("nokosOrders", {
@@ -159,6 +160,7 @@ export const saveOrder = internalMutation({
       orderId: args.orderId,
       sellPrice: Math.max(0, Math.floor(args.sellPrice)),
       providerPrice: Math.max(0, Math.floor(args.providerPrice)),
+      number: args.number || undefined,
       status: "ordered",
       createdAt: Date.now(),
     });
@@ -166,11 +168,12 @@ export const saveOrder = internalMutation({
   },
 });
 
-/** Simpan OTP / ubah status order di riwayat. */
+/** Simpan OTP / nomor / ubah status order di riwayat. */
 export const setOrderResult = internalMutation({
   args: {
     orderId: v.string(),
     otp: v.optional(v.string()),
+    number: v.optional(v.string()),
     status: v.optional(v.string()),
     error: v.optional(v.string()),
   },
@@ -182,6 +185,7 @@ export const setOrderResult = internalMutation({
     if (!row) return { ok: false, error: "Order tidak ditemukan di riwayat." };
     const patch: Record<string, string | number> = { updatedAt: Date.now() };
     if (args.otp != null) patch.otp = args.otp;
+    if (args.number != null && !row.number) patch.number = args.number;
     if (args.status != null) patch.status = args.status;
     if (args.error != null) patch.error = args.error;
     await ctx.db.patch(row._id, patch);
@@ -200,6 +204,12 @@ export const settleDeposit = internalMutation({
     if (!dep) return { ok: false, error: "Deposit tidak ditemukan." };
     if (dep.status === "paid") {
       return { ok: true, already: true };
+    }
+    if (dep.status === "voucher" || dep.channel === "voucher") {
+      return { ok: false, error: "Voucher bukan deposit tunai." };
+    }
+    if (dep.status === "rejected") {
+      return { ok: false, error: "Deposit ini sudah ditolak." };
     }
     const user = await ctx.db.get(dep.userId);
     if (!user) return { ok: false, error: "Akun tidak ditemukan." };
@@ -250,27 +260,77 @@ export const applyVoucher = internalMutation({
       referenceId: args.referenceId,
       amount,
       status: "voucher",
+      channel: "voucher",
       createdAt: Date.now(),
     });
     return { ok: true, balance };
   },
 });
 
-/** Catat deposit pending saat invoice dibuat. */
+/** Catat deposit pending saat invoice dibuat (paymentku QR / manual). */
 export const recordDeposit = internalMutation({
   args: {
     userId: v.id("appUsers"),
     referenceId: v.string(),
     amount: v.number(),
+    channel: v.optional(v.string()),
+    methodId: v.optional(v.string()),
+    methodLabel: v.optional(v.string()),
+    methodDetail: v.optional(v.string()),
+    note: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const channel = args.channel || "paymentku";
     await ctx.db.insert("nokosDeposits", {
       userId: args.userId,
       referenceId: args.referenceId,
       amount: Math.max(0, Math.floor(args.amount)),
       status: "pending",
+      channel,
+      ...(args.methodId ? { methodId: args.methodId } : {}),
+      ...(args.methodLabel ? { methodLabel: args.methodLabel } : {}),
+      ...(args.methodDetail ? { methodDetail: args.methodDetail } : {}),
+      ...(args.note ? { note: args.note } : {}),
       createdAt: Date.now(),
     });
+    return { ok: true };
+  },
+});
+
+/** Ambil satu deposit berdasarkan referenceId (untuk cek sebelum approve/tolak). */
+export const depositByReference = internalQuery({
+  args: { referenceId: v.string() },
+  handler: async (ctx, args) => {
+    const r = await ctx.db
+      .query("nokosDeposits")
+      .withIndex("by_reference", (q) => q.eq("referenceId", args.referenceId))
+      .first();
+    if (!r) return null;
+    return {
+      id: r._id,
+      userId: r.userId,
+      referenceId: r.referenceId,
+      amount: r.amount,
+      status: r.status,
+      channel: r.channel || "paymentku",
+      methodLabel: r.methodLabel || null,
+      createdAt: r.createdAt,
+    };
+  },
+});
+
+/** Tolak deposit manual yang belum dibayar/valid (admin). */
+export const rejectDeposit = internalMutation({
+  args: { referenceId: v.string() },
+  handler: async (ctx, args) => {
+    const r = await ctx.db
+      .query("nokosDeposits")
+      .withIndex("by_reference", (q) => q.eq("referenceId", args.referenceId))
+      .first();
+    if (!r) return { ok: false, error: "Deposit tidak ditemukan." };
+    if (r.status === "paid") return { ok: false, error: "Deposit sudah lunas — tidak bisa ditolak." };
+    if (r.status === "rejected") return { ok: false, error: "Deposit sudah ditolak." };
+    await ctx.db.patch(r._id, { status: "rejected" });
     return { ok: true };
   },
 });
@@ -310,6 +370,7 @@ export const listOrders = internalQuery({
       sellPrice: r.sellPrice,
       status: r.status,
       otp: r.otp ?? null,
+      number: r.number ?? null,
       error: r.error ?? null,
       createdAt: r.createdAt,
     }));
@@ -526,6 +587,10 @@ export const adminDepositsList = internalQuery({
         referenceId: r.referenceId,
         amount: r.amount,
         status: r.status,
+        channel: r.channel || "paymentku",
+        methodLabel: r.methodLabel || null,
+        methodDetail: r.methodDetail || null,
+        note: r.note || null,
         createdAt: r.createdAt,
         paidAt: r.paidAt || null,
       });
@@ -581,6 +646,7 @@ export const orderByProviderId = internalQuery({
       orderId: r.orderId,
       status: r.status,
       otp: r.otp || null,
+      number: r.number || null,
       sellPrice: r.sellPrice,
       createdAt: r.createdAt,
     };
@@ -601,6 +667,7 @@ export const orderByRowId = internalQuery({
       orderId: r.orderId,
       status: r.status,
       otp: r.otp || null,
+      number: r.number || null,
       sellPrice: r.sellPrice,
       createdAt: r.createdAt,
     };

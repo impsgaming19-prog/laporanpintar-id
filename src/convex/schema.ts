@@ -33,9 +33,16 @@ export default defineSchema({
     userId: v.id("appUsers"),
     referenceId: v.string(),
     amount: v.number(),
-    status: v.string(), // "pending" | "paid" | "expired"
+    status: v.string(), // "pending" | "paid" | "expired" | "voucher" | "rejected"
     createdAt: v.number(),
     paidAt: v.optional(v.number()),
+    // channel pembayaran: "paymentku" (QRIS otomatis) | "manual" (QR/Bank/E-Wallet dikonfirmasi admin) | "voucher"
+    channel: v.optional(v.string()),
+    // info metode manual (disalin dari pengaturan toko saat permintaan dibuat)
+    methodId: v.optional(v.string()),
+    methodLabel: v.optional(v.string()),
+    methodDetail: v.optional(v.string()),
+    note: v.optional(v.string()), // catatan customer (nama pengirim dll)
   })
     .index("by_reference", ["referenceId"])
     .index("by_user", ["userId", "createdAt"]),
@@ -54,6 +61,8 @@ export default defineSchema({
     providerPrice: v.number(),
     status: v.string(), // "ordered" | "otp" | "done" | "refunded" | "failed"
     otp: v.optional(v.string()),
+    // Nomor yang dikeluarkan provider (kalau ada di respons order/status)
+    number: v.optional(v.string()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),

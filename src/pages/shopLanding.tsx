@@ -64,7 +64,7 @@ const SERVER_LIST: ServerDef[] = [
     provider: "ditznesia",
     providerLabel: "Ditznesia",
     description:
-      "Terhubung langsung ke API Ditznesia v1. Data negara & layanan live dari server.",
+      "Server 3 (API Ditznesia v1). Data negara & layanan live dari server.",
     badge: null,
   },
   {
@@ -82,7 +82,7 @@ const SERVER_LIST: ServerDef[] = [
     provider: "ditznesia_v2",
     providerLabel: "Ditznesia API v2",
     description:
-      "Server tambahan (Ditznesia API v2). Aktif bila kunci API server ini diisi.",
+      "Server 4 (API Ditznesia v2). Otomatis memakai kunci API akun Ditznesia yang sama dengan server v1.",
     badge: "Baru",
   },
 ];
