@@ -559,6 +559,7 @@ export type PayMethod = {
   accountName: string;
   accountNo: string;
   imageUrl?: string;
+  imageStorageId?: string;
   enabled: boolean;
 };
 
@@ -590,10 +591,27 @@ export async function apiAdminSetPaymentkuEnabled(
   return callAction("shop:adminSetPaymentkuEnabled", { actorId, enabled });
 }
 
+/** Owner menyiapkan URL upload gambar QR (disimpan di Convex storage). */
+export async function apiGetImageUploadUrl(actorId: string): Promise<{
+  ok: boolean;
+  uploadUrl?: string;
+  error?: string;
+}> {
+  return callAction("shop:getImageUploadUrl", { actorId });
+}
+
 /** Owner menambah/memperbarui metode isi manual (QR/Bank/E-Wallet). */
 export async function apiAdminSavePaymentMethod(
   actorId: string,
-  m: { id?: string; type: PayMethodType; label: string; accountName: string; accountNo: string; imageUrl?: string }
+  m: {
+    id?: string;
+    type: PayMethodType;
+    label: string;
+    accountName: string;
+    accountNo: string;
+    imageUrl?: string;
+    imageStorageId?: string;
+  }
 ): Promise<{ ok: boolean; method?: PayMethod; methods?: PayMethod[]; error?: string }> {
   return callAction("shop:adminSavePaymentMethod", {
     actorId,
@@ -603,6 +621,7 @@ export async function apiAdminSavePaymentMethod(
     accountName: m.accountName,
     accountNo: m.accountNo,
     imageUrl: m.imageUrl ?? undefined,
+    imageStorageId: m.imageStorageId ?? undefined,
   });
 }
 

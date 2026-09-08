@@ -1239,6 +1239,8 @@ type PayMethod = {
   accountName: string;
   accountNo: string;
   imageUrl?: string;
+  /** Gambar QR yang diunggah owner — disimpan di Convex storage. */
+  imageStorageId?: string;
   enabled: boolean;
 };
 
@@ -1263,6 +1265,17 @@ async function readPayConfig(ctx: any): Promise<{ paykuEnabled: boolean; methods
   const methods: PayMethod[] = Array.isArray(raw)
     ? (raw as PayMethod[]).filter((m) => m && typeof m === "object" && m.id)
     : [];
+  // Gambar QR yang diunggah owner disimpan sebagai storageId — resolve jadi URL publik.
+  for (const m of methods) {
+    if (m.imageStorageId) {
+      try {
+        const url = await ctx.storage.getUrl(m.imageStorageId);
+        if (url) m.imageUrl = url;
+      } catch {
+        /* biarkan imageUrl lama */
+      }
+    }
+  }
   return { paykuEnabled, methods };
 }
 
@@ -1273,6 +1286,7 @@ function sanitizeMethod(input: {
   accountName?: string;
   accountNo?: string;
   imageUrl?: string;
+  imageStorageId?: string;
   enabled?: boolean;
 }): { method?: PayMethod; error?: string } {
   const type = (input.type || "qr").toLowerCase();
@@ -1282,7 +1296,14 @@ function sanitizeMethod(input: {
   const label = (input.label || "").trim();
   const accountName = (input.accountName || "").trim();
   const accountNo = (input.accountNo || "").trim();
-  if (!label || !accountName || !accountNo) {
+  const imageStorageId = (input.imageStorageId || "").trim();
+  const imageUrl = (input.imageUrl || "").trim();
+  if (type === "qr") {
+    // QR cukup nama + gambar QR (atau nama pemilik); nomor tidak wajib.
+    if (!label || (!accountName && !accountNo && !imageStorageId && !imageUrl)) {
+      return { error: "Lengkapi nama metode, lalu unggah gambar QR atau isi nama pemilik." };
+    }
+  } else if (!label || !accountName || !accountNo) {
     return { error: "Lengkapi nama metode, nama pemilik, dan nomor/tujuan." };
   }
   const method: PayMethod = {
@@ -1293,8 +1314,11 @@ function sanitizeMethod(input: {
     accountNo: accountNo.slice(0, 120),
     enabled: input.enabled !== false,
   };
-  if (input.imageUrl && String(input.imageUrl).trim()) {
-    method.imageUrl = String(input.imageUrl).trim().slice(0, 500);
+  if (imageUrl) {
+    method.imageUrl = imageUrl.slice(0, 500);
+  }
+  if (imageStorageId) {
+    method.imageStorageId = imageStorageId;
   }
   return { method };
 }
@@ -1320,6 +1344,17 @@ export const adminPaymentConfig = action({
   },
 });
 
+/** Owner menyiapkan URL upload gambar QR (disimpan di Convex storage). */
+export const getImageUploadUrl = action({
+  args: { actorId: v.id("appUsers") },
+  handler: async (ctx, args) => {
+    const actor = await ownerActor(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner." };
+    const uploadUrl = await ctx.storage.generateUploadUrl();
+    return { ok: true, uploadUrl };
+  },
+});
+
 /** Owner menampilkan/menyembunyikan menu Paymentku QRIS (logika gateway tidak diubah). */
 export const adminSetPaymentkuEnabled = action({
   args: { actorId: v.id("appUsers"), enabled: v.boolean() },
@@ -1341,6 +1376,7 @@ export const adminSavePaymentMethod = action({
     accountName: v.string(),
     accountNo: v.string(),
     imageUrl: v.optional(v.string()),
+    imageStorageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const actor = await ownerActor(ctx, args.actorId);
@@ -1353,12 +1389,21 @@ export const adminSavePaymentMethod = action({
       accountName: args.accountName,
       accountNo: args.accountNo,
       imageUrl: args.imageUrl ?? undefined,
+      imageStorageId: args.imageStorageId ?? undefined,
       enabled: true,
     });
     if (error || !method) return { ok: false, error: error || "Metode tidak valid." };
     const idx = methods.findIndex((m) => m.id === method.id);
     if (idx >= 0) {
       const old = methods[idx];
+      // Ganti gambar lama yang diunggah kalau diganti dengan yang baru.
+      if (old.imageStorageId && old.imageStorageId !== method.imageStorageId) {
+        try {
+          await ctx.storage.delete(old.imageStorageId);
+        } catch {
+          /* best-effort */
+        }
+      }
       methods[idx] = { ...old, ...method, id: old.id, enabled: args.id ? old.enabled : true };
     } else {
       methods.push(method);
@@ -1390,6 +1435,14 @@ export const adminDeletePaymentMethod = action({
     const actor = await ownerActor(ctx, args.actorId);
     if (!actor) return { ok: false, error: "Khusus Owner." };
     const { paykuEnabled, methods } = await readPayConfig(ctx);
+    const removed = methods.find((x) => x.id === args.id);
+    if (removed?.imageStorageId) {
+      try {
+        await ctx.storage.delete(removed.imageStorageId);
+      } catch {
+        /* best-effort */
+      }
+    }
     const next = methods.filter((x) => x.id !== args.id);
     await ctx.runMutation(I.wallet.setSettings, { key: "payMethods", value: next });
     return { ok: true, methods: next };

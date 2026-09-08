@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BarChart3,
   Users,
@@ -48,6 +48,7 @@ import {
   apiShopSetServerEnabled,
   apiAdminPaymentConfig,
   apiAdminSetPaymentkuEnabled,
+  apiGetImageUploadUrl,
   apiAdminSavePaymentMethod,
   apiAdminTogglePaymentMethod,
   apiAdminDeletePaymentMethod,
@@ -188,7 +189,11 @@ export function AdminHub({
     accountName: string;
     accountNo: string;
     imageUrl: string;
-  }>({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "" });
+    imageStorageId: string;
+  }>({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "", imageStorageId: "" });
+  const [payPreview, setPayPreview] = useState("");
+  const [payImageBusy, setPayImageBusy] = useState(false);
+  const payFileRef = useRef<HTMLInputElement | null>(null);
   const [confirmSettle, setConfirmSettle] = useState<string | null>(null);
   const [confirmRejectDep, setConfirmRejectDep] = useState<string | null>(null);
 
@@ -404,9 +409,42 @@ export function AdminHub({
     setLoading(false);
   };
 
+  const uploadPayImage = async (file: File) => {
+    if (!file) return;
+    setPayImageBusy(true);
+    try {
+      const res = await apiGetImageUploadUrl(actorId).catch(() => null);
+      if (!res?.ok || !res.uploadUrl) {
+        flash("err", "Gagal menyiapkan upload. Coba lagi.");
+        return;
+      }
+      const up = await fetch(res.uploadUrl, { method: "PUT", body: file });
+      if (!up.ok) {
+        flash("err", "Gagal mengunggah gambar. Coba lagi.");
+        return;
+      }
+      const data = await up.json().catch(() => null);
+      const storageId = data?.storageId;
+      if (!storageId) {
+        flash("err", "Respons upload tidak valid. Coba lagi.");
+        return;
+      }
+      setPfm((p) => ({ ...p, imageStorageId: storageId, imageUrl: "" }));
+      setPayPreview(URL.createObjectURL(file));
+      flash("ok", "Gambar QR terunggah. Tekan Simpan Metode.");
+    } catch {
+      flash("err", "Upload gagal. Coba lagi.");
+    }
+    setPayImageBusy(false);
+  };
+
   const savePayMethod = async () => {
-    if (!pfm.label.trim() || !pfm.accountName.trim() || !pfm.accountNo.trim()) {
-      flash("err", "Lengkapi nama metode, nama pemilik, dan nomor/tujuan.");
+    if (!pfm.label.trim()) {
+      flash("err", "Nama metode wajib diisi.");
+      return;
+    }
+    if (pfm.type !== "qr" && (!pfm.accountName.trim() || !pfm.accountNo.trim())) {
+      flash("err", "Lengkapi nama pemilik dan nomor/tujuan.");
       return;
     }
     setLoading(true);
@@ -417,12 +455,14 @@ export function AdminHub({
       accountName: pfm.accountName.trim(),
       accountNo: pfm.accountNo.trim(),
       imageUrl: pfm.imageUrl.trim() || undefined,
+      imageStorageId: pfm.imageStorageId || undefined,
     }).catch(() => null);
     if (res?.ok) {
       if (res.methods) setPayMethods(res.methods);
       flash("ok", pfm.id ? `Metode ${pfm.label} diperbarui.` : `Metode ${pfm.label} ditambahkan — sekarang tampil di halaman Isi Saldo.`);
       setShowPayForm(false);
-      setPfm({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "" });
+      setPayPreview("");
+      setPfm({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "", imageStorageId: "" });
     } else {
       flash("err", res?.error || "Gagal menyimpan metode.");
     }
@@ -437,7 +477,9 @@ export function AdminHub({
       accountName: m.accountName,
       accountNo: m.accountNo,
       imageUrl: m.imageUrl || "",
+      imageStorageId: m.imageStorageId || "",
     });
+    setPayPreview("");
     setShowPayForm(true);
   };
 
@@ -1176,7 +1218,8 @@ export function AdminHub({
                     </div>
                     <button
                       onClick={() => {
-                        setPfm({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "" });
+                        setPfm({ id: "", type: "qr", label: "", accountName: "", accountNo: "", imageUrl: "", imageStorageId: "" });
+                        setPayPreview("");
                         setShowPayForm(!showPayForm);
                       }}
                       className="px-3.5 py-2 rounded-xl text-[12px] font-bold text-black flex items-center gap-1.5"
@@ -1206,8 +1249,44 @@ export function AdminHub({
                         <Field label="Nama pemilik (a.n.)">
                           <input value={pfm.accountName} onChange={(e) => setPfm({ ...pfm, accountName: e.target.value })} placeholder="cth: KAKO NOKOS" className={inputCls} />
                         </Field>
-                        <Field label="Gambar QR (opsional — link gambar)">
-                          <input value={pfm.imageUrl} onChange={(e) => setPfm({ ...pfm, imageUrl: e.target.value })} placeholder="https://...png" className={inputCls} />
+                        <Field label="Gambar QR (unggah dari HP/PC atau link)">
+                          <input value={pfm.imageUrl} onChange={(e) => setPfm({ ...pfm, imageUrl: e.target.value })} placeholder="https://...png (opsional kalau pakai tombol unggah)" className={inputCls} />
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <input
+                              ref={payFileRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) void uploadPayImage(f);
+                                e.target.value = "";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => payFileRef.current?.click()}
+                              disabled={payImageBusy || loading}
+                              className="px-3 py-2 rounded-lg text-[11.5px] font-bold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50"
+                            >
+                              {payImageBusy ? "Mengunggah..." : "⬆ Unggah Gambar QR"}
+                            </button>
+                            {(payPreview || pfm.imageUrl) && (
+                              <>
+                                <img src={payPreview || pfm.imageUrl} alt="QR preview" className="w-14 h-14 object-contain rounded-lg bg-white p-0.5 border border-white/10" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPayPreview("");
+                                    setPfm((p) => ({ ...p, imageStorageId: "", imageUrl: "" }));
+                                  }}
+                                  className="text-[11px] text-red-300 border border-red-500/30 bg-red-500/10 rounded-lg px-2 py-1.5 hover:bg-red-500/20"
+                                >
+                                  Hapus gambar
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </Field>
                       </div>
                       <div className="flex items-center gap-2">

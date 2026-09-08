@@ -434,20 +434,24 @@ function DepositSheet({
                     <p className="text-[12px] text-zinc-400">
                       {m.type === "qr" ? "Scan / bayar ke QR ini" : m.type === "bank" ? "Transfer ke rekening:" : "Bayar ke E-Wallet:"}
                     </p>
-                    <p className="text-[15px] font-black text-white tracking-wide select-all mt-0.5">{m.accountNo}</p>
+                    {m.accountNo ? (
+                      <p className="text-[15px] font-black text-white tracking-wide select-all mt-0.5">{m.accountNo}</p>
+                    ) : null}
                     <p className="text-[12px] text-zinc-400 mt-0.5">a.n. {m.accountName}</p>
-                    <button
-                      onClick={() => {
-                        try {
-                          navigator.clipboard.writeText(m.accountNo);
-                        } catch {
-                          /* ignore */
-                        }
-                      }}
-                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 text-zinc-200 hover:bg-white/5"
-                    >
-                      <Copy className="w-3.5 h-3.5" /> Salin Nomor
-                    </button>
+                    {m.accountNo ? (
+                      <button
+                        onClick={() => {
+                          try {
+                            navigator.clipboard.writeText(m.accountNo);
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 text-zinc-200 hover:bg-white/5"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Salin Nomor
+                      </button>
+                    ) : null}
                   </div>
                   <input
                     type="text"
