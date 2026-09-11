@@ -625,6 +625,7 @@ export const adminOrdersList = internalQuery({
         providerPrice: r.providerPrice,
         status: r.status,
         otp: r.otp || null,
+        number: r.number || null,
         error: r.error || null,
         createdAt: r.createdAt,
       });

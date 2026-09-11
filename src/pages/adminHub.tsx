@@ -986,6 +986,7 @@ export function AdminHub({
                               {o.countryName ? ` (${o.countryName})` : ""}
                             </p>
                             <p className="text-[11px] text-zinc-500 truncate">
+                              {o.serverLabel ? `${o.serverLabel} · ` : ""}
                               {o.providerLabel || o.provider} · ID {o.orderId} · {fmtDT(o.createdAt)}
                             </p>
                           </div>
@@ -996,6 +997,11 @@ export function AdminHub({
                             Harga jual: <b className="text-white">{fmtRp(o.sellPrice || 0)}</b>
                           </span>
                           <span className="text-zinc-500">(provider {fmtRp(o.providerPrice || 0)})</span>
+                          {o.number && (
+                            <span className="font-mono text-[11px] text-zinc-300 bg-white/5 border border-white/10 rounded-lg px-2 py-0.5">
+                              {o.number}
+                            </span>
+                          )}
                           {o.otp && (
                             <span className="font-mono font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-2 py-0.5">
                               OTP: {o.otp}

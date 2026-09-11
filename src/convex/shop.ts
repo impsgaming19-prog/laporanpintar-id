@@ -150,8 +150,8 @@ function explainHttpFailure(label: string, status: number, json: any, text: stri
   }
   if (status === 500) {
     return (
-      `${label} menjawab HTTP 500 (kunci API salah / tidak terdaftar di server ini, atau akun sedang bermasalah). ` +
-      "Cek Api Key di dashboard provider & pastikan kunci dipasang di Keys project dengan nama yang benar."
+      `${label} menjawab HTTP 500. Biasanya ini dari sisi server provider (API mereka sedang bermasalah), ` +
+      "bukan dari kunci API kita. Coba lagi beberapa saat lagi; kalau terus begini, kabari admin."
     );
   }
   return extractErrorMessage(json, text, `${label}: HTTP ${status}`);
@@ -463,6 +463,30 @@ function publicServerName(provider: string): string {
   if (provider === "kirimkode") return "Server OTP v1";
   if (provider === "ditznesia") return "Server OTP v2";
   return "Server OTP";
+}
+
+/**
+ * Terjemahkan pesan error mentah provider jadi kalimat Indonesia yang jelas
+ * untuk customer ("Failed to create order" dll tidak informatif).
+ */
+function friendlyProviderError(label: string, raw: string): string {
+  const s = (raw || "").toLowerCase();
+  if (s.includes("out of stock")) {
+    return `${label}: stok nomor untuk layanan ini sedang habis. Coba layanan lain atau beberapa saat lagi.`;
+  }
+  if (s.includes("failed to create order") || s.includes("gagal")) {
+    return `${label}: nomor untuk pilihan ini sedang tidak tersedia. Coba layanan atau server lain.`;
+  }
+  if (s.includes("insufficient") || s.includes("saldo") || s.includes("balance")) {
+    return `${label}: stok toko di server sedang kosong. Kabari admin supaya diisi, lalu coba lagi.`;
+  }
+  if (s.includes("invalid api key") || s.includes("unauthorized")) {
+    return `${label}: kunci server bermasalah. Kabari admin untuk memperbaikinya.`;
+  }
+  if (s.includes("invalid server")) {
+    return `${label}: pilihan server tersebut sedang tidak tersedia.`;
+  }
+  return raw;
 }
 
 type ProviderCountry = {
@@ -785,12 +809,23 @@ async function placeProviderOrder(opts: {
       body: JSON.stringify(body),
     });
     if (!ok) {
-      err = { ok: false, error: extractErrorMessage(json, text, `${label}: HTTP ${status}`) };
+      err = {
+        ok: false,
+        error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: HTTP ${status}`)),
+      };
     } else {
       raw = json;
       const data = (json && json.data) || json || {};
-      orderId = data.id ?? data.order_id ?? data.orderId ?? null;
-      numberValue = extractNumberField(data);
+      if (json && json.success === false) {
+        // HTTP 200 tapi server menolak (mis. stok habis).
+        err = {
+          ok: false,
+          error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: order ditolak server.`)),
+        };
+      } else {
+        orderId = data.id ?? data.order_id ?? data.orderId ?? null;
+        numberValue = extractNumberField(data);
+      }
     }
   } else {
     const params = new URLSearchParams({
@@ -806,18 +841,28 @@ async function placeProviderOrder(opts: {
     }
     const { ok, status, json, text } = await providerFetch(cfg, `/order.php?${params.toString()}`);
     if (!ok) {
-      err = { ok: false, error: explainHttpFailure(label, status, json, text) };
+      err = {
+        ok: false,
+        error: friendlyProviderError(label, explainHttpFailure(label, status, json, text)),
+      };
     } else {
       raw = json;
       const data = (json && json.data) || json || {};
-      orderId =
-        data.id ??
-        data.id_order ??
-        data.order_id ??
-        data.orderId ??
-        data.trx_id ??
-        null;
-      numberValue = extractNumberField(data);
+      if (json && json.success === false) {
+        err = {
+          ok: false,
+          error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: order ditolak server.`)),
+        };
+      } else {
+        orderId =
+          data.id ??
+          data.id_order ??
+          data.order_id ??
+          data.orderId ??
+          data.trx_id ??
+          null;
+        numberValue = extractNumberField(data);
+      }
     }
   }
 
