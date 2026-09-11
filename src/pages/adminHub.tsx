@@ -753,7 +753,12 @@ export function AdminHub({
                   <StatCard icon={<BarChart3 className="w-5 h-5" />} value={String(stats.activeOrderCount ?? 0)} label="Order aktif (cek OTP)" />
                   <StatCard icon={<ReceiptText className="w-5 h-5" />} value={String(stats.orderCount ?? 0)} label="Total order" />
                   <StatCard icon={<ShieldCheck className="w-5 h-5" />} value={fmtRp(stats.refundTotal ?? orderStats.refunded)} label="Total refund" />
-                  <StatCard icon={<Crown className="w-5 h-5" />} value={`± ${fmtRp(Math.round((orderStats.sold || 0) * 0.3))}`} label="Untungmu (±30% dari jual)" accent />
+                  <StatCard
+                    icon={<Crown className="w-5 h-5" />}
+                    value={`± ${fmtRp(stats.profitGross ?? Math.round((orderStats.sold || 0) * 0.3))}`}
+                    label="Untungmu (±30% dari jual)"
+                    accent
+                  />
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <StatCard icon={<Headset className="w-5 h-5" />} value={String(stats.staffCount ?? 0)} label="Akun CS" />

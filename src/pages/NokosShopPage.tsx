@@ -613,7 +613,8 @@ export default function NokosShopPage() {
 
   const sellPrice = useMemo(() => {
     if (!selectedService) return 0;
-    return computeSellPrice(selectedService.price);
+    // Harga jual datang dari backend (satu sumber angka); fallback hitung lokal.
+    return selectedService.sellPrice ?? computeSellPrice(selectedService.price);
   }, [selectedService]);
 
   const visibleCountries = useMemo(() => {
@@ -1829,7 +1830,7 @@ export default function NokosShopPage() {
                               >
                                 <p className="text-[13px] font-semibold text-white truncate">{s.name || key}</p>
                                 <p className="text-[11px] mt-0.5">
-                                  <span style={{ color: ACCENT }}>Rp {formatRupiah(computeSellPrice(s.price))}</span>
+                                  <span style={{ color: ACCENT }}>Rp {formatRupiah(s.sellPrice ?? computeSellPrice(s.price))}</span>
                                   <span className="text-zinc-500"> • stok {isOut ? "habis" : s.stock}</span>
                                 </p>
                               </button>

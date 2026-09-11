@@ -584,6 +584,61 @@ function flattenServices(root: any): Array<{
   return out;
 }
 
+/**
+ * Tempelkan harga jual (setelah markup) ke tiap layanan supaya halaman toko dan
+ * backend memakai angka yang SAMA — display tidak lagi menghitung sendiri.
+ */
+function withSellPrices<T extends { price: number }>(services: T[]) {
+  return services.map((s) => ({ ...s, sellPrice: computeSellPrice(s.price) }));
+}
+
+type FlatService = { id: string | null; name: string | null; service: string | null; price: number; stock: number };
+
+/**
+ * Ambil daftar layanan satu negara dari provider (dipakai halaman toko DAN
+ * untuk memverifikasi harga asli saat customer membeli).
+ */
+async function loadProviderServices(
+  cfg: ResolvedProviderConfig,
+  country: number | string,
+  server?: string
+): Promise<{ ok: boolean; services: FlatService[]; error?: string; note?: string; viaFallback?: boolean; raw?: any }> {
+  const countryEnc = encodeURIComponent(String(country));
+  if (cfg.auth === "header") {
+    let lastErr = "";
+    let reachable = false;
+    // Node asal negara dicoba lebih dulu, baru node lain sebagai cadangan.
+    const nodeOrder = [...(server ? [server] : []), ...kirimkodeServerCandidates().filter((s) => s !== server)];
+    for (const node of nodeOrder) {
+      const { url, headers } = withAuth(cfg, `${cfg.base}/services?country=${countryEnc}&server=${node}`);
+      const { ok, status, json, text } = await fetchJson(url, { headers });
+      // HTTP error (401/500/...) = node bermasalah -> coba node lain.
+      if (!ok && status >= 400) {
+        lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
+        continue;
+      }
+      // Node menjawab (walau isinya "belum ada layanan") -> API memang hidup.
+      reachable = true;
+      const data = (json && json.data) || [];
+      const services = flattenServices(Array.isArray(data) ? data : []);
+      if (services.length === 0) {
+        lastErr = extractErrorMessage(json, text, `${cfg.label} (${node}) belum punya layanan untuk negara ini.`);
+        continue;
+      }
+      return { ok: true, services, raw: json };
+    }
+    // Semua node menjawab tapi negara ini belum punya layanan -> bukan error.
+    if (reachable) return { ok: true, services: [], note: lastErr };
+    return { ok: false, services: [], error: lastErr || `${cfg.label}: semua server gagal.` };
+  }
+  const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, `/layanan.php?negara=${countryEnc}`);
+  if (!ok) {
+    return { ok: false, services: [], error: explainHttpFailure(cfg.label, status, json, text, base) };
+  }
+  const data = (json && json.data) || json || {};
+  return { ok: true, services: flattenServices(data), viaFallback, raw: json };
+}
+
 /** Daftar layanan untuk sebuah negara di provider. */
 export const listServices = action({
   args: {
@@ -597,48 +652,46 @@ export const listServices = action({
     if (!cfg) {
       return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
     }
-    const countryEnc = encodeURIComponent(String(args.country));
-    if (cfg.auth === "header") {
-      let lastErr = "";
-      let reachable = false;
-      // Node asal negara dicoba lebih dulu, baru node lain sebagai cadangan.
-      const nodeOrder = [
-        ...(args.server ? [args.server] : []),
-        ...kirimkodeServerCandidates().filter((s) => s !== args.server),
-      ];
-      for (const server of nodeOrder) {
-        const { url, headers } = withAuth(cfg, `${cfg.base}/services?country=${countryEnc}&server=${server}`);
-        const { ok, status, json, text } = await fetchJson(url, { headers });
-        // HTTP error (401/500/...) = node bermasalah -> coba node lain.
-        if (!ok && status >= 400) {
-          lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
-          continue;
-        }
-        // Node menjawab (walau isinya "belum ada layanan") -> API memang hidup.
-        reachable = true;
-        const data = (json && json.data) || [];
-        const services = flattenServices(Array.isArray(data) ? data : []);
-        if (services.length === 0) {
-          lastErr = extractErrorMessage(json, text, `${cfg.label} (${server}) belum punya layanan untuk negara ini.`);
-          continue;
-        }
-        return { ok: true, provider: cfg.label, services, raw: json };
-      }
-      // Semua node menjawab tapi negara ini belum punya layanan -> bukan error.
-      if (reachable) {
-        return { ok: true, provider: cfg.label, services: [], note: lastErr };
-      }
-      return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
-    }
-    const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, `/layanan.php?negara=${countryEnc}`);
-    if (!ok) {
-      return { ok: false, error: explainHttpFailure(cfg.label, status, json, text, base) };
-    }
-    const data = (json && json.data) || json || {};
-    const services = flattenServices(data);
-    return { ok: true, provider: cfg.label, services, viaFallback, raw: json };
+    const res = await loadProviderServices(cfg, args.country, args.server);
+    if (!res.ok) return { ok: false, error: res.error || `${cfg.label}: gagal mengambil layanan.` };
+    return {
+      ok: true,
+      provider: cfg.label,
+      services: withSellPrices(res.services),
+      viaFallback: res.viaFallback,
+      note: res.note,
+      raw: res.raw ?? null,
+    };
   },
 });
+
+/**
+ * Harga modal ASLI dari provider untuk satu negara + layanan.
+ * Dipakai untuk memastikan customer tidak bisa mengirim harga palsu dari
+ * browser (mis. modal Rp 1 supaya bayar Rp 2). Kalau gagal dibaca, kembalikan
+ * null dan pembelian memakai harga yang dikirim (perilaku lama).
+ */
+async function providerPriceFor(
+  cfg: ResolvedProviderConfig,
+  country: number | string,
+  service: number | string,
+  server?: string
+): Promise<number | null> {
+  try {
+    const res = await loadProviderServices(cfg, country, server);
+    if (!res.ok) return null;
+    const wanted = String(service).trim().toLowerCase();
+    const match = res.services.find((s) => {
+      const code = String(s.service ?? s.id ?? "").trim().toLowerCase();
+      const name = String(s.name ?? "").trim().toLowerCase();
+      return code === wanted || name === wanted || (s.id != null && String(s.id).trim().toLowerCase() === wanted);
+    });
+    const price = Math.floor(Number(match?.price) || 0);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Pesan nomor dari provider dengan kunci owner.
@@ -923,7 +976,14 @@ export const buyWithBalance = action({
     server: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const providerPrice = Math.max(0, Math.floor(Number(args.providerPrice) || 0));
+    let providerPrice = Math.max(0, Math.floor(Number(args.providerPrice) || 0));
+    // Anti-manipulasi harga: kalau harga asli provider bisa dibaca, itu yang dipakai.
+    // Browser tidak lagi bisa mengirim "modal Rp 1" supaya bayar Rp 2.
+    const cfgBuy = providerConfig(args.provider);
+    if (cfgBuy) {
+      const live = await providerPriceFor(cfgBuy, args.country, args.service, args.server);
+      if (live != null) providerPrice = live;
+    }
     const sellPrice = computeSellPrice(providerPrice);
 
     const charge = await ctx.runMutation(I.wallet.charge, {

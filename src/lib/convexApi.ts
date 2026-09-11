@@ -43,8 +43,11 @@ export type Service = {
   id: number | string | null;
   name: string | null;
   service?: string | null;
+  /** Harga modal dari provider. */
   price: number;
   stock: number;
+  /** Harga yang dibayar customer (dari backend — satu-satunya sumber angka). */
+  sellPrice?: number;
 };
 
 export type OrderResult = {
