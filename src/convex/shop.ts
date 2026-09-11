@@ -762,6 +762,17 @@ async function providerPriceFor(
   server?: string
 ): Promise<number | null> {
   try {
+    if (cfg.auth === "header") {
+      // KirimKode: harga dicari di node asal dulu, lalu node lain di pool.
+      // Penting supaya harga yang ditagih selalu berasal dari provider (bukan
+      // angka kiriman browser), termasuk saat node asal tidak punya kode itu.
+      const nodes = [...new Set([(server || "").trim(), ...kirimkodeNodes(cfg)].filter(Boolean))];
+      for (const node of nodes) {
+        const hit = await serviceOnNode(cfg, node, country, service);
+        if (hit) return hit.price;
+      }
+      return null;
+    }
     const res = await loadProviderServices(cfg, country, server);
     if (!res.ok) return null;
     const wanted = String(service).trim().toLowerCase();
@@ -775,6 +786,48 @@ async function providerPriceFor(
   } catch {
     return null;
   }
+}
+
+type NodeServiceHit = { code: string; price: number; name: string | null };
+
+/**
+ * Cari satu layanan di satu node KirimKode tertentu.
+ *
+ * Penting: KODE layanan tiap node BEDA (mis. node A pakai "ayz#750", node B
+ * pakai "ac") walau aplikasinya sama. Jadi kalau kodenya tidak ketemu di node
+ * itu, kita cocokkan lewat NAMA layanan (mis. "WhatsApp"). Dengan begitu
+ * customer yang memesan satu aplikasi tetap dapat nomor walau node asalnya
+ * sedang kehabisan stok, selama node lain punya aplikasi yang sama.
+ */
+async function serviceOnNode(
+  cfg: ResolvedProviderConfig,
+  node: string,
+  country: number | string,
+  code: number | string,
+  name?: string | null
+): Promise<NodeServiceHit | null> {
+  if (cfg.auth !== "header") return null;
+  const { url, headers } = withAuth(
+    cfg,
+    `${cfg.base}/services?country=${encodeURIComponent(String(country))}&server=${node}`
+  );
+  const { ok, json } = await fetchJson(url, { headers });
+  if (!ok) return null;
+  const data = (json && json.data) || [];
+  const services = flattenServices(Array.isArray(data) ? data : []);
+  const wantedCode = String(code).trim().toLowerCase();
+  const wantedName = (name || "").trim().toLowerCase();
+  const hit =
+    services.find((s) => String(s.service ?? s.id ?? "").trim().toLowerCase() === wantedCode) ??
+    (wantedName
+      ? services.find(
+          (s) => String(s.name ?? "").trim().toLowerCase() === wantedName && Number(s.price) > 0
+        )
+      : undefined);
+  if (!hit) return null;
+  const price = Math.floor(Number(hit.price) || 0);
+  if (price <= 0) return null;
+  return { code: String(hit.service ?? hit.id ?? code), price, name: hit.name != null ? String(hit.name) : null };
 }
 
 /**
@@ -799,6 +852,12 @@ async function placeProviderOrder(opts: {
    * provider/API tidak pernah tampil ke pembeli).
    */
   publicLabel?: string;
+  /**
+   * Batas harga modal yang boleh dibayar toko (harga yang dipakai menghitung
+   * harga jual ke customer). Kalau pindah ke node lain, node itu hanya dipakai
+   * kalau harga modalnya tidak lebih mahal dari angka ini. 0 = tanpa batas.
+   */
+  maxProviderPrice?: number;
   extra?: any;
 }): Promise<Record<string, unknown>> {
   const cfg = providerConfig(opts.provider);
@@ -834,12 +893,28 @@ async function placeProviderOrder(opts: {
     // Inilah yang membuat Server v1–v4 selalu punya jalur yang benar-benar bisa
     // memesan, bukan cuma tampil sebagai cadangan.
     const nodes = [...new Set([(opts.server || "").trim(), ...kirimkodeNodes(cfg)].filter(Boolean))];
+    const maxPrice = Math.max(0, Math.floor(Number(opts.maxProviderPrice) || 0));
+    // Nama layanan di node asal — dipakai untuk mencari aplikasi yang sama di
+    // node cadangan (kode layanannya berbeda antar node).
+    let serviceName: string | null = null;
+    if (nodes.length > 1 && maxPrice > 0) {
+      const origin = await serviceOnNode(cfg, nodes[0], country, service);
+      serviceName = origin?.name ?? null;
+    }
     let lastRaw: any = null;
-    for (const server of nodes) {
+    for (const [idx, server] of nodes.entries()) {
+      let serviceForNode = service;
+      if (idx > 0 && maxPrice > 0) {
+        const hit = await serviceOnNode(cfg, server, country, service, serviceName);
+        // Lewati node yang tidak punya aplikasi ini, atau yang modalnya lebih
+        // mahal dari harga yang sudah dibayar customer (untung bisa minus).
+        if (!hit || hit.price > maxPrice) continue;
+        serviceForNode = hit.code;
+      }
       const body: Record<string, unknown> = {
         server,
         country,
-        service,
+        service: serviceForNode,
         operator,
         ...(opts.extra && typeof opts.extra === "object" ? opts.extra : {}),
       };
@@ -949,6 +1024,8 @@ export const createNumberOrder = action({
     operator: v.optional(v.union(v.number(), v.string())),
     providerPrice: v.number(),
     server: v.optional(v.string()),
+    /** Batas harga modal saat pindah jalur (0/kosong = tanpa batas). */
+    maxProviderPrice: v.optional(v.number()),
     extra: v.optional(v.any()),
   },
   handler: async (_ctx, args) => placeProviderOrder(args),
@@ -1132,6 +1209,9 @@ export const buyWithBalance = action({
       providerPrice,
       server: args.server,
       publicLabel: args.serverLabel?.trim() || "Server",
+      // Pengaman untung: pindah jalur hanya boleh ke node dengan modal yang
+      // tidak lebih mahal dari harga yang dipakai menghitung tagihan customer.
+      maxProviderPrice: providerPrice,
     });
 
     if (!order.ok || !order.orderId) {
