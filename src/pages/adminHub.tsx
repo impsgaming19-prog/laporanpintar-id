@@ -105,10 +105,10 @@ const REFUNDABLE = (s: string) =>
   !["done", "otp", "cancelled", "refunded", "failed", "error"].includes(s);
 
 const SERVER_ROWS = [
-  { id: "jasav1", label: "JasaOTP v1", provider: "KirimKode", badge: "Populer", desc: "Negara, layanan, stok & harga langsung dari API KirimKode." },
-  { id: "jasav2", label: "JasaOTP v2", provider: "Ditznesia", badge: null, desc: "Data live dari API Ditznesia v1." },
-  { id: "jasav3", label: "JasaOTP v3", provider: "Ditznesia API v2 (Server 4)", badge: null, desc: "Server 4. Kalau host API v2 provider tidak bisa dihubungi, otomatis pindah ke jalur API v1 dengan kunci akun yang sama." },
-  { id: "jasav4", label: "JasaOTP v4", provider: "Ditznesia API v2 (Server 4)", badge: "Baru", desc: "Server 4 jalur tambahan. Bisa dinyalakan/dimatikan seperti server lain." },
+  { id: "jasav1", label: "Server v1", provider: "Server utama", badge: "Populer", desc: "Pilihan negara & layanan paling lengkap. Data live dari server." },
+  { id: "jasav2", label: "Server v2", provider: "Cadangan", badge: null, desc: "Dipakai kalau stok di Server v1 sedang habis." },
+  { id: "jasav3", label: "Server v3", provider: "Cadangan", badge: null, desc: "Server cadangan tambahan." },
+  { id: "jasav4", label: "Server v4", provider: "Cadangan", badge: "Baru", desc: "Jalur cadangan terakhir. Bisa dinyalakan/dimatikan seperti server lain." },
 ];
 
 type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "pembayaran" | "staff" | "promo" | "server" | "laporan" | "akun";
