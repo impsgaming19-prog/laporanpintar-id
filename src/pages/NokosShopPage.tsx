@@ -34,6 +34,7 @@ import {
   KeyRound,
   Gift,
   Ticket,
+  Info,
 } from "lucide-react";
 
 import {
@@ -46,6 +47,7 @@ import {
   apiAdminStats,
   apiGetOrderStatus,
   apiListCountries,
+  apiListCountriesMeta,
   apiListServices,
   apiShopBuyWithBalance,
   apiShopCancelOrder,
@@ -139,18 +141,18 @@ const SERVER_LIST: ServerDef[] = [
     id: "jasav3",
     label: "JasaOTP v3",
     provider: "ditznesia_v2",
-    providerLabel: "Ditznesia API v2",
+    providerLabel: "Ditznesia API v2 (Server 4)",
     description:
-      "Terhubung langsung ke API Ditznesia v2. Pilihan nomor mengikuti stok server.",
+      "Server 4. Kalau host API v2 provider tidak bisa dihubungi, data diambil otomatis dari jalur API v1 (kunci akun sama).",
     badge: null,
   },
   {
     id: "jasav4",
     label: "JasaOTP v4",
     provider: "ditznesia_v2",
-    providerLabel: "Ditznesia API v2",
+    providerLabel: "Ditznesia API v2 (Server 4)",
     description:
-      "Server 4 (API Ditznesia v2). Otomatis memakai kunci API akun Ditznesia yang sama dengan server v1.",
+      "Server 4 jalur tambahan dengan kunci API akun Ditznesia yang sama; tetap jalan walau host v2 sedang down.",
     badge: "Baru",
   },
 ];
@@ -513,6 +515,7 @@ export default function NokosShopPage() {
   const [selectedServiceId, setSelectedServiceId] = useState<number | string | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [dataFallback, setDataFallback] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [serviceQuery, setServiceQuery] = useState("");
   const [countryQuery, setCountryQuery] = useState("");
@@ -705,6 +708,7 @@ export default function NokosShopPage() {
     setSelectedCountryId(null);
     setSelectedServiceId(null);
     setDataError(null);
+    setDataFallback(false);
     setCountryQuery("");
     setServiceQuery("");
 
@@ -713,13 +717,15 @@ export default function NokosShopPage() {
       let lastErr: any = null;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          const list = await apiListCountries(server.provider);
+          const meta = await apiListCountriesMeta(server.provider);
+          const list = meta.countries;
           if (cancelled) return;
           if (list.length === 0) {
             if (!cancelled) setLoadingData(false);
             setDataError("Server tidak mengembalikan daftar negara (kosong).");
             return;
           }
+          setDataFallback(meta.viaFallback);
           setCountries(list);
           const first = list.find((c) => c.id != null) || list[0];
           setSelectedCountryId(first.id);
@@ -1670,6 +1676,15 @@ export default function NokosShopPage() {
         {/* ================= DATA SERVER ================= */}
         {server && (
           <section className="mt-6">
+            {dataFallback && !dataError && (
+              <div className="mb-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200 flex items-start gap-2">
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  Host API utama provider untuk server ini sedang tidak bisa dihubungi, jadi data diambil
+                  otomatis dari jalur API cadangan (kunci akun yang sama). Pembelian tetap berjalan normal.
+                </span>
+              </div>
+            )}
             {dataError ? (
               <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
                 <div className="flex items-start gap-3">

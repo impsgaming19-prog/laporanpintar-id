@@ -137,15 +137,22 @@ export async function apiWaitPaid(
 }
 
 /** Daftar negara dari server provider. */
-export async function apiListCountries(provider: ProviderId): Promise<Country[]> {
-  const r = await callAction<{ ok?: boolean; countries?: Country[]; error?: string }>(
+/** Sama seperti apiListCountries, tapi ikut memberi tahu apakah data diambil dari jalur cadangan. */
+export async function apiListCountriesMeta(
+  provider: ProviderId
+): Promise<{ countries: Country[]; viaFallback: boolean }> {
+  const r = await callAction<{ ok?: boolean; countries?: Country[]; viaFallback?: boolean; error?: string }>(
     "shop:listCountries",
     { provider }
   );
   if (!r.ok || !Array.isArray(r.countries)) {
     throw new Error(r.error || "Gagal mengambil daftar negara dari server.");
   }
-  return r.countries;
+  return { countries: r.countries, viaFallback: Boolean(r.viaFallback) };
+}
+
+export async function apiListCountries(provider: ProviderId): Promise<Country[]> {
+  return (await apiListCountriesMeta(provider)).countries;
 }
 
 /** Daftar layanan untuk satu negara dari server provider. */

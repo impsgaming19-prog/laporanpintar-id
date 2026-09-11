@@ -136,7 +136,13 @@ function extractErrorMessage(json: any, text: string, fallback: string): string 
  * API ini mengembalikan HTTP 500 polos (tanpa isi) saat kunci salah / tidak
  * terdaftar / akun tidak dikenali. Jelaskan ke user supaya tidak bingung.
  */
-function explainHttpFailure(label: string, status: number, json: any, text: string): string {
+function explainHttpFailure(label: string, status: number, json: any, text: string, base?: string): string {
+  if (status === 0) {
+    return (
+      `${label} tidak bisa dihubungi${base ? ` (${base})` : ""} — host API provider tidak terjangkau (DNS gagal / server mereka sedang mati), ` +
+      "dan jalur cadangan juga tidak bisa dipakai. Tekan “Muat Ulang Data” beberapa saat lagi."
+    );
+  }
   if (status === 500) {
     return (
       `${label} menjawab HTTP 500 (kunci API salah / tidak terdaftar di server ini, atau akun sedang bermasalah). ` +
@@ -266,9 +272,17 @@ type ProviderConfig = {
   defaultBase: string;
   auth: "header" | "query";
   apiKeyHeader?: string;
+  /** Base URL cadangan: dipakai otomatis kalau base utama tidak bisa dihubungi. */
+  fallbackBases?: string[];
+  /** Nama env berisi daftar base cadangan dipisah koma (bisa diisi Owner). */
+  fallbackEnv?: string;
 };
 
-type ResolvedProviderConfig = ProviderConfig & { apiKey: string; base: string };
+type ResolvedProviderConfig = ProviderConfig & {
+  apiKey: string;
+  base: string;
+  fallbackBases: string[];
+};
 
 function isResolved(cfg: ProviderConfig): cfg is ResolvedProviderConfig {
   return Boolean((cfg as ResolvedProviderConfig).apiKey && (cfg as ResolvedProviderConfig).base);
@@ -300,6 +314,14 @@ const PROVIDERS: Record<Provider, ProviderConfig> = {
     baseEnv: "NOKOS_DITZNESIA_API2_URL",
     defaultBase: DITZNESIA2_BASE_DEFAULT,
     auth: "query",
+    // Host resmi API v2 (api.jasaotp.id) tidak selalu bisa dihubungi — domainnya
+    // bisa mati / tidak resolve, sehingga Server 4 gagal "fetch failed". Supaya
+    // server tetap jalan, kalau host utama gagal sistem otomatis pindah ke API
+    // v1 (api.ditznesia.com/v1) yang memakai KUNCI AKUN YANG SAMA.
+    // Owner bisa mengisi host v2 yang benar di NOKOS_DITZNESIA_API2_URL, atau
+    // menambah cadangan lain di NOKOS_DITZNESIA_API2_FALLBACK (pisahkan koma).
+    fallbackBases: [DITZNESIA_BASE_DEFAULT],
+    fallbackEnv: "NOKOS_DITZNESIA_API2_FALLBACK",
   },
 };
 
@@ -312,7 +334,12 @@ function providerConfig(provider: string): ResolvedProviderConfig | null {
   const base = (process.env[cfg.baseEnv] || cfg.defaultBase).trim().replace(/\/+$/, "");
   if (!apiKey) return null;
   if (!base) return null;
-  const resolved = { ...cfg, apiKey, base };
+  const extra = (process.env[cfg.fallbackEnv || ""] || "")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+  const fallbackBases = [...new Set([...extra, ...(cfg.fallbackBases || [])].map((b) => b.trim().replace(/\/+$/, "")).filter((b) => b && b !== base))];
+  const resolved = { ...cfg, apiKey, base, fallbackBases };
   return isResolved(resolved) ? resolved : null;
 }
 
@@ -323,6 +350,46 @@ function withAuth(cfg: ResolvedProviderConfig, url: string): { url: string; head
   }
   const sep = url.includes("?") ? "&" : "?";
   return { url: `${url}${sep}api_key=${encodeURIComponent(cfg.apiKey)}` };
+}
+
+type ProviderResponse = {
+  ok: boolean;
+  status: number;
+  json: any;
+  text: string;
+  base: string;
+  viaFallback: boolean;
+};
+
+/**
+ * Kirim permintaan ke provider dengan jalur cadangan.
+ *
+ * Kalau host utama tidak bisa dihubungi (DNS mati / jaringan gagal = status 0,
+ * atau host membalas 404/5xx karena salah host), permintaan otomatis dicoba ke
+ * base berikutnya. Ini yang bikin Server 3 & Server 4 tetap hidup walau salah
+ * satu domain API provider sedang down.
+ */
+async function providerFetch(
+  cfg: ResolvedProviderConfig,
+  path: string,
+  init?: RequestInit
+): Promise<ProviderResponse> {
+  const bases = [cfg.base, ...cfg.fallbackBases].filter(Boolean);
+  let last: ProviderResponse = { ok: false, status: 0, json: null, text: "", base: cfg.base, viaFallback: false };
+  for (const base of bases) {
+    const { url, headers } = withAuth(cfg, `${base}${path}`);
+    const merged: RequestInit = { ...(init || {}) };
+    if (headers) {
+      merged.headers = { ...((init?.headers as Record<string, string>) || {}), ...headers };
+    }
+    const res = await fetchJson(url, merged);
+    last = { ...res, base, viaFallback: base !== cfg.base };
+    if (res.ok) return last;
+    // Status 0 (host mati), 404 (salah host), atau 5xx -> masih boleh coba cadangan.
+    // Kalau host benar tapi membalas 4xx dengan pesan (mis. data tidak ada), stop.
+    if (res.status !== 0 && res.status !== 404 && res.status < 500) return last;
+  }
+  return last;
 }
 
 /** KirimKode memakai /order/{id}/status, Ditznesia memakai /sms.php?id_order=... */
@@ -338,15 +405,14 @@ export const getOrderStatus = action({
     // v2 memakai param `id`; v1 di beberapa versi memakai `id_order`. Dikirim dua-duanya
     // agar kompatibel dengan keduanya (param ekstra diabaikan API).
     const path = cfg.auth === "header" ? `/order/${id}/status` : `/sms.php?id=${id}&id_order=${id}`;
-    const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
-    const { ok, status, json, text } = await fetchJson(url, { headers });
+    const { ok, status, json, text, viaFallback } = await providerFetch(cfg, path);
     if (!ok) {
       return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
     }
     const data = (json && json.data) || json || {};
     const code = data.code ?? data.otp ?? data.sms ?? null;
     const number = extractNumberField(data);
-    return { ok: true, provider: cfg.label, orderId: args.orderId, code, number, raw: json };
+    return { ok: true, provider: cfg.label, orderId: args.orderId, code, number, viaFallback, raw: json };
   },
 });
 
@@ -359,8 +425,7 @@ export const getProviderBalance = action({
       return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
     }
     const path = cfg.auth === "header" ? "/balance" : "/balance.php";
-    const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
-    const { ok, status, json, text } = await fetchJson(url, { headers });
+    const { ok, status, json, text, viaFallback } = await providerFetch(cfg, path);
     if (!ok) {
       return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
     }
@@ -370,6 +435,7 @@ export const getProviderBalance = action({
       ok: true,
       provider: cfg.label,
       balance: Number.isFinite(balance) ? balance : null,
+      viaFallback,
       raw: json,
     };
   },
@@ -405,11 +471,9 @@ export const listCountries = action({
       }
       return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
     }
-    const path = "/negara.php";
-    const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
-    const { ok, status, json, text } = await fetchJson(url, { headers });
+    const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, "/negara.php");
     if (!ok) {
-      return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
+      return { ok: false, error: explainHttpFailure(cfg.label, status, json, text, base) };
     }
     const data = (json && json.data) || [];
     const countries = Array.isArray(data)
@@ -419,7 +483,7 @@ export const listCountries = action({
           code: c.code ?? c.kode ?? null,
         }))
       : [];
-    return { ok: true, provider: cfg.label, countries, raw: json };
+    return { ok: true, provider: cfg.label, countries, viaFallback, raw: json };
   },
 });
 
@@ -489,14 +553,13 @@ export const listServices = action({
       }
       return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
     }
-    const { url, headers } = withAuth(cfg, `${cfg.base}/layanan.php?negara=${countryEnc}`);
-    const { ok, status, json, text } = await fetchJson(url, { headers });
+    const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, `/layanan.php?negara=${countryEnc}`);
     if (!ok) {
-      return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
+      return { ok: false, error: explainHttpFailure(cfg.label, status, json, text, base) };
     }
     const data = (json && json.data) || json || {};
     const services = flattenServices(data);
-    return { ok: true, provider: cfg.label, services, raw: json };
+    return { ok: true, provider: cfg.label, services, viaFallback, raw: json };
   },
 });
 
@@ -580,7 +643,7 @@ async function placeProviderOrder(opts: {
         if (val != null) params.set(k, String(val));
       }
     }
-    const { ok, status, json, text } = await fetchJson(`${cfg.base}/order.php?${params.toString()}`);
+    const { ok, status, json, text } = await providerFetch(cfg, `/order.php?${params.toString()}`);
     if (!ok) {
       err = { ok: false, error: explainHttpFailure(cfg.label, status, json, text) };
     } else {
@@ -876,8 +939,7 @@ async function providerFetchCode(
 ): Promise<{ code: string | null; number: string | null; raw: any }> {
   const id = encodeURIComponent(orderId);
   const path = cfg.auth === "header" ? `/order/${id}/status` : `/sms.php?id=${id}&id_order=${id}`;
-  const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
-  const { ok, json } = await fetchJson(url, { headers });
+  const { ok, json } = await providerFetch(cfg, path);
   if (!ok) return { code: null, number: null, raw: json };
   const data = (json && json.data) || json || {};
   const code = data.code ?? data.otp ?? data.sms ?? null;
@@ -899,8 +961,7 @@ async function providerCancelOrder(cfg: ResolvedProviderConfig, orderId: string)
     return ok ? { ok: true } : { ok: false, error: extractErrorMessage(json, text, `HTTP ${status}`) };
   }
   // Ditznesia v1/v2: GET cancel.php?id=...
-  const { url } = withAuth(cfg, `${cfg.base}/cancel.php?id=${id}&id_order=${id}`);
-  const { ok, status, json, text } = await fetchJson(url);
+  const { ok, status, json, text } = await providerFetch(cfg, `/cancel.php?id=${id}&id_order=${id}`);
   return ok ? { ok: true } : { ok: false, error: extractErrorMessage(json, text, `HTTP ${status}`) };
 }
 
