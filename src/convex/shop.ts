@@ -85,6 +85,27 @@ function kirimkodeServerCandidates(): string[] {
   return out;
 }
 
+/**
+ * Node KirimKode yang TERBUKTI bisa MEMESAN nomor untuk akun ini.
+ *
+ * Hasil uji langsung ke API: dari api1..api10, hanya api4 dan api3 yang
+ * benar-benar mengeluarkan nomor. Node lain masih menjawab daftar negara &
+ * layanan (jadi terlihat "tersedia"), tapi setiap order selalu ditolak dengan
+ * "nomor untuk pilihan ini sedang tidak tersedia". Karena itu hanya dua node
+ * ini yang dipakai, supaya customer tidak pernah memilih yang pasti gagal.
+ */
+const KIRIMKODE_LIVE_NODES = ["api4", "api3"];
+
+/** Jalur stok utama (Server v1 & v3): node utama akun dulu, lalu node live lain. */
+function kirimkodePoolMain(): string[] {
+  return [...new Set([kirimkodeServer(), ...KIRIMKODE_LIVE_NODES])];
+}
+
+/** Jalur stok alternatif (Server v2 & v4): mulai dari node live kedua. */
+function kirimkodePoolAlt(): string[] {
+  return [...KIRIMKODE_LIVE_NODES].reverse();
+}
+
 function makeReferenceId(prefix = "KAKO"): string {
   const rand =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -267,7 +288,7 @@ export const checkPayment = action({
  * PROVIDER OTP (KirimKode / Ditznesia / Ditznesia v2)
  * ===================================================================== */
 
-type Provider = "kirimkode" | "ditznesia" | "ditznesia_v2";
+type Provider = "kirimkode" | "kirimkode_alt" | "ditznesia" | "ditznesia_v2";
 
 type ProviderConfig = {
   label: string;
@@ -281,6 +302,11 @@ type ProviderConfig = {
   fallbackBases?: string[];
   /** Nama env berisi daftar base cadangan dipisah koma (bisa diisi Owner). */
   fallbackEnv?: string;
+  /**
+   * Node KirimKode yang dipakai provider ini (urutan prioritas). Dibuat sebagai
+   * fungsi supaya env NOKOS_KIRIMKODE_SERVER tetap terbaca saat dipakai.
+   */
+  nodePool?: () => string[];
 };
 
 type ResolvedProviderConfig = ProviderConfig & {
@@ -293,15 +319,21 @@ function isResolved(cfg: ProviderConfig): cfg is ResolvedProviderConfig {
   return Boolean((cfg as ResolvedProviderConfig).apiKey && (cfg as ResolvedProviderConfig).base);
 }
 
+/** Setelan dasar KirimKode — dipakai dua server (jalur stok utama & alternatif). */
+const KIRIMKODE_PROVIDER: ProviderConfig = {
+  label: "KirimKode",
+  keyEnv: "NOKOS_KIRIMKODE_API_KEY",
+  baseEnv: "NOKOS_KIRIMKODE_API_URL",
+  defaultBase: KIRIMKODE_BASE_DEFAULT,
+  auth: "header",
+  apiKeyHeader: "X-API-Key",
+};
+
 const PROVIDERS: Record<Provider, ProviderConfig> = {
-  kirimkode: {
-    label: "KirimKode",
-    keyEnv: "NOKOS_KIRIMKODE_API_KEY",
-    baseEnv: "NOKOS_KIRIMKODE_API_URL",
-    defaultBase: KIRIMKODE_BASE_DEFAULT,
-    auth: "header",
-    apiKeyHeader: "X-API-Key",
-  },
+  kirimkode: { ...KIRIMKODE_PROVIDER, nodePool: kirimkodePoolMain },
+  // Server v2/v4: kunci & host sama, hanya urutan node stoknya berbeda, jadi
+  // tetap benar-benar bisa memesan nomor (bukan sekadar tampilan cadangan).
+  kirimkode_alt: { ...KIRIMKODE_PROVIDER, nodePool: kirimkodePoolAlt },
   ditznesia: {
     label: "Ditznesia",
     keyEnv: "NOKOS_DITZNESIA_API_KEY",
@@ -346,6 +378,11 @@ function providerConfig(provider: string): ResolvedProviderConfig | null {
   const fallbackBases = [...new Set([...extra, ...(cfg.fallbackBases || [])].map((b) => b.trim().replace(/\/+$/, "")).filter((b) => b && b !== base))];
   const resolved = { ...cfg, apiKey, base, fallbackBases };
   return isResolved(resolved) ? resolved : null;
+}
+
+/** Node KirimKode yang dipakai provider ini (fallback: semua node api1..api10). */
+function kirimkodeNodes(cfg: ResolvedProviderConfig): string[] {
+  return cfg.nodePool ? cfg.nodePool() : kirimkodeServerCandidates();
 }
 
 /** Tambah auth ke URL (Ditznesia: param api_key) atau headers (KirimKode: X-API-Key). */
@@ -461,8 +498,9 @@ export const getProviderBalance = action({
  */
 function publicServerName(provider: string): string {
   if (provider === "kirimkode") return "Server v1";
-  if (provider === "ditznesia") return "Server v2";
-  return "Server v3";
+  if (provider === "kirimkode_alt") return "Server v2";
+  if (provider === "ditznesia") return "Server v3";
+  return "Server v4";
 }
 
 /**
@@ -516,7 +554,7 @@ export const listCountries = action({
     // di field `server` supaya saat beli nomor dipesan ke node yang benar.
     if (cfg.auth === "header") {
       const results = await Promise.all(
-        kirimkodeServerCandidates().map(async (server) => {
+        kirimkodeNodes(cfg).map(async (server) => {
           const { url, headers } = withAuth(cfg, `${cfg.base}/countries?server=${server}`);
           const { ok, status, json, text } = await fetchJson(url, { headers });
           if (!ok || (json && json.success === false)) {
@@ -651,7 +689,7 @@ async function loadProviderServices(
     let lastErr = "";
     let reachable = false;
     // Node asal negara dicoba lebih dulu, baru node lain sebagai cadangan.
-    const nodeOrder = [...(server ? [server] : []), ...kirimkodeServerCandidates().filter((s) => s !== server)];
+    const nodeOrder = [...new Set([...(server ? [server] : []), ...kirimkodeNodes(cfg)])];
     for (const node of nodeOrder) {
       const { url, headers } = withAuth(cfg, `${cfg.base}/services?country=${countryEnc}&server=${node}`);
       const { ok, status, json, text } = await fetchJson(url, { headers });
@@ -768,7 +806,7 @@ async function placeProviderOrder(opts: {
   const label = opts.publicLabel?.trim() || cfg?.label || opts.provider;
   if (!cfg) {
     const needed =
-      opts.provider === "kirimkode"
+      opts.provider === "kirimkode" || opts.provider === "kirimkode_alt"
         ? "NOKOS_KIRIMKODE_API_KEY"
         : opts.provider === "ditznesia"
           ? "NOKOS_DITZNESIA_API_KEY"
@@ -791,42 +829,58 @@ async function placeProviderOrder(opts: {
   let err: { ok: false; error: string } | null = null;
 
   if (cfg.auth === "header") {
-    const server = (opts.server || process.env.NOKOS_KIRIMKODE_SERVER || "api4").trim() || "api4";
-    const body: Record<string, unknown> = {
-      server,
-      country,
-      service,
-      operator,
-      ...(opts.extra && typeof opts.extra === "object" ? opts.extra : {}),
-    };
-    const { ok, status, json, text } = await fetchJson(`${cfg.base}/order`, {
-      method: "POST",
-      headers: {
-        [cfg.apiKeyHeader || "X-API-Key"]: cfg.apiKey,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!ok) {
-      err = {
-        ok: false,
-        error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: HTTP ${status}`)),
+    // Node asal negara dicoba lebih dulu; kalau node itu tidak bisa memesan
+    // (stok habis / nomor tidak tersedia), otomatis dicoba node live berikutnya.
+    // Inilah yang membuat Server v1–v4 selalu punya jalur yang benar-benar bisa
+    // memesan, bukan cuma tampil sebagai cadangan.
+    const nodes = [...new Set([(opts.server || "").trim(), ...kirimkodeNodes(cfg)].filter(Boolean))];
+    let lastRaw: any = null;
+    for (const server of nodes) {
+      const body: Record<string, unknown> = {
+        server,
+        country,
+        service,
+        operator,
+        ...(opts.extra && typeof opts.extra === "object" ? opts.extra : {}),
       };
-    } else {
-      raw = json;
-      const data = (json && json.data) || json || {};
-      if (json && json.success === false) {
-        // HTTP 200 tapi server menolak (mis. stok habis).
+      const { ok, status, json, text } = await fetchJson(`${cfg.base}/order`, {
+        method: "POST",
+        headers: {
+          [cfg.apiKeyHeader || "X-API-Key"]: cfg.apiKey,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (json) lastRaw = json;
+      err = null;
+      orderId = null;
+      numberValue = null;
+      if (!ok) {
         err = {
           ok: false,
-          error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: order ditolak server.`)),
+          error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: HTTP ${status}`)),
         };
       } else {
-        orderId = data.id ?? data.order_id ?? data.orderId ?? null;
-        numberValue = extractNumberField(data);
+        raw = json;
+        const data = (json && json.data) || json || {};
+        if (json && json.success === false) {
+          // HTTP 200 tapi server menolak (mis. stok habis).
+          err = {
+            ok: false,
+            error: friendlyProviderError(label, extractErrorMessage(json, text, `${label}: order ditolak server.`)),
+          };
+        } else {
+          orderId = data.id ?? data.order_id ?? data.orderId ?? null;
+          numberValue = extractNumberField(data);
+          if (!orderId) {
+            err = { ok: false, error: `${label}: server tidak mengirim id order.` };
+          }
+        }
       }
+      if (!err && orderId) break;
     }
+    if (!raw) raw = lastRaw;
   } else {
     const params = new URLSearchParams({
       api_key: cfg.apiKey,

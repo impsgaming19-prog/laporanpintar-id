@@ -10,7 +10,7 @@
 
 const CONVEX_URL = "https://glorious-ladybug-353.convex.cloud";
 
-export type ProviderId = "kirimkode" | "ditznesia" | "ditznesia_v2";
+export type ProviderId = "kirimkode" | "kirimkode_alt" | "ditznesia" | "ditznesia_v2";
 
 export type PaymentResult = {
   ok: boolean;

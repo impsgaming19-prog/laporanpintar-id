@@ -56,14 +56,14 @@ const SERVER_LIST: ServerDef[] = [
     provider: "kirimkode",
     providerLabel: "Pilihan terlengkap",
     description:
-      "Negara & layanan paling banyak (300+ negara), harga mulai Rp 250-an. Pakai ini kalau bingung mau pilih yang mana.",
+      "Pilihan negara & layanan paling lengkap, harga mulai Rp 250-an. Pakai ini kalau bingung mau pilih yang mana.",
     badge: "Populer",
   },
   {
     id: "jasav2",
     label: "Server v2",
-    provider: "ditznesia",
-    providerLabel: "Cadangan",
+    provider: "kirimkode_alt",
+    providerLabel: "Stok alternatif",
     description:
       "Server cadangan kalau stok atau layanan di Server v1 sedang habis. Caranya sama, nomor tetap dikirim otomatis.",
     badge: null,
@@ -71,16 +71,16 @@ const SERVER_LIST: ServerDef[] = [
   {
     id: "jasav3",
     label: "Server v3",
-    provider: "ditznesia_v2",
+    provider: "kirimkode",
     providerLabel: "Cadangan",
     description:
-      "Server cadangan tambahan supaya pembelian tetap jalan saat server lain ramai.",
+      "Cadangan jalur utama, supaya pembelian tetap jalan saat server lain ramai.",
     badge: null,
   },
   {
     id: "jasav4",
     label: "Server v4",
-    provider: "ditznesia_v2",
+    provider: "kirimkode_alt",
     providerLabel: "Cadangan",
     description:
       "Pilihan terakhir kalau server lain sedang gangguan. Saldo tetap aman — gagal order = saldo kembali otomatis.",
@@ -291,7 +291,7 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
     let cancelled = false;
     (async () => {
       const lists = await Promise.all(
-        (["kirimkode", "ditznesia"] as ProviderId[]).map((id) => apiListCountries(id).catch(() => [] as Country[]))
+        (["kirimkode", "kirimkode_alt"] as ProviderId[]).map((id) => apiListCountries(id).catch(() => [] as Country[]))
       );
       if (cancelled) return;
       const seen = new Set<string>();

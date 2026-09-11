@@ -49,6 +49,8 @@ type P = {
   fallbacks?: string[];
   /** Nama env berisi base cadangan tambahan, dipisah koma. */
   fallbackEnv?: string;
+  /** Jangan tampilkan barisnya di monitor saldo Owner (alias provider lain). */
+  hidden?: boolean;
 };
 
 const PROVIDERS: Record<string, P> = {
@@ -58,6 +60,17 @@ const PROVIDERS: Record<string, P> = {
     baseEnv: "NOKOS_KIRIMKODE_API_URL",
     def: KIRIMKODE_BASE_DEFAULT,
     auth: "header",
+  },
+  // Server v2/v4 memakai kunci & host KirimKode yang sama, hanya urutan node
+  // stoknya berbeda. Entri ini wajib ada supaya OTP order dari jalur itu tetap
+  // terbaca, tapi tidak ditampilkan dua kali di monitor saldo Owner.
+  kirimkode_alt: {
+    key: "NOKOS_KIRIMKODE_API_KEY",
+    label: "KirimKode (jalur alternatif)",
+    baseEnv: "NOKOS_KIRIMKODE_API_URL",
+    def: KIRIMKODE_BASE_DEFAULT,
+    auth: "header",
+    hidden: true,
   },
   ditznesia: {
     key: "NOKOS_DITZNESIA_API_KEY",
@@ -308,6 +321,7 @@ export const providerMonitor = action({
 
     const out: Array<{ key: string; label: string; configured: boolean; balance: number | null; error?: string }> = [];
     for (const key of Object.keys(PROVIDERS)) {
+      if (PROVIDERS[key].hidden) continue;
       const cfg = providerCfg(key);
       if (!cfg) {
         out.push({ key, label: PROVIDERS[key].label, configured: false, balance: null });
