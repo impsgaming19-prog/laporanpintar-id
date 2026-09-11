@@ -38,7 +38,18 @@ function envKey(...names: string[]): string {
   return "";
 }
 
-type P = { key: string; altKey?: string; label: string; baseEnv: string; def: string; auth: "header" | "query" };
+type P = {
+  key: string;
+  altKey?: string;
+  label: string;
+  baseEnv: string;
+  def: string;
+  auth: "header" | "query";
+  /** Base URL cadangan (kalau host utama provider mati/DNS gagal). */
+  fallbacks?: string[];
+  /** Nama env berisi base cadangan tambahan, dipisah koma. */
+  fallbackEnv?: string;
+};
 
 const PROVIDERS: Record<string, P> = {
   kirimkode: {
@@ -64,17 +75,56 @@ const PROVIDERS: Record<string, P> = {
     baseEnv: "NOKOS_DITZNESIA_API2_URL",
     def: DITZNESIA2_BASE_DEFAULT,
     auth: "query",
+    // Host API v2 (api.jasaotp.id) bisa mati total; order yang dibuat lewat
+    // jalur cadangan juga harus dicek OTP-nya di host yang sama.
+    fallbacks: [DITZNESIA_BASE_DEFAULT],
+    fallbackEnv: "NOKOS_DITZNESIA_API2_FALLBACK",
   },
 };
 
-function providerCfg(provider: string): (P & { apiKey: string; base: string }) | null {
+type ResolvedP = P & { apiKey: string; base: string; fallbackBases: string[] };
+
+function providerCfg(provider: string): ResolvedP | null {
   const p = PROVIDERS[provider];
   if (!p) return null;
   // Kunci versi ini dulu; kalau kosong pakai kunci versi lainnya (satu akun = satu kunci).
   const apiKey = p.altKey ? envKey(p.key, p.altKey) : envKey(p.key);
   const base = (process.env[p.baseEnv] || p.def).trim().replace(/\/+$/, "");
   if (!apiKey || !base) return null;
-  return { ...p, apiKey, base };
+  const extra = (process.env[p.fallbackEnv || ""] || "")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+  const fallbackBases = [
+    ...new Set(
+      [...extra, ...(p.fallbacks || [])]
+        .map((b) => b.trim().replace(/\/+$/, ""))
+        .filter((b) => b && b !== base)
+    ),
+  ];
+  return { ...p, apiKey, base, fallbackBases };
+}
+
+/**
+ * Coba host utama lalu host cadangan — supaya order yang dibuat saat host v2
+ * mati tetap bisa dicek OTP-nya di host yang benar-benar dipakai.
+ */
+async function providerFetchAny(
+  cfg: ResolvedP,
+  path: string,
+  init?: RequestInit
+): Promise<{ ok: boolean; status: number; json: any; text: string; base: string }> {
+  let last = { ok: false, status: 0, json: null as any, text: "", base: cfg.base };
+  for (const base of [cfg.base, ...cfg.fallbackBases]) {
+    const { url, headers } = withAuth(cfg, `${base}${path}`);
+    const merged: RequestInit = { ...(init || {}) };
+    if (headers) merged.headers = { ...((init?.headers as Record<string, string>) || {}), ...headers };
+    const res = await fetchJson(url, merged);
+    last = { ...res, base };
+    if (res.ok) return last;
+    if (res.status !== 0 && res.status !== 404 && res.status < 500) return last;
+  }
+  return last;
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<{ ok: boolean; status: number; json: any; text: string }> {
@@ -104,13 +154,12 @@ function withAuth(cfg: P & { apiKey: string; base: string }, url: string): { url
 
 /** Ambil OTP dari provider untuk satu id order (kirimkode: /order/{id}/status, ditznesia: /sms.php). */
 async function fetchOtp(
-  cfg: P & { apiKey: string; base: string },
+  cfg: ResolvedP,
   orderId: string
 ): Promise<{ code: string | null; number: string | null }> {
   const id = encodeURIComponent(orderId);
   const path = cfg.auth === "header" ? `/order/${id}/status` : `/sms.php?id=${id}&id_order=${id}`;
-  const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
-  const { ok, json } = await fetchJson(url, { headers });
+  const { ok, json } = await providerFetchAny(cfg, path);
   if (!ok) return { code: null, number: null };
   const data = (json && json.data) || json || {};
   const code = data.code ?? data.otp ?? data.sms ?? null;
@@ -129,15 +178,13 @@ async function fetchOtp(
 }
 
 /** Batalkan order di provider (best-effort — kalau gagal tidak masalah, saldo customer tetap dikembalikan). */
-async function cancelAtProvider(cfg: P & { apiKey: string; base: string }, orderId: string): Promise<void> {
+async function cancelAtProvider(cfg: ResolvedP, orderId: string): Promise<void> {
   try {
     const id = encodeURIComponent(orderId);
     if (cfg.auth === "header") {
-      const { url, headers } = withAuth(cfg, `${cfg.base}/order/${id}/cancel`);
-      await fetchJson(url, { method: "POST", headers });
+      await providerFetchAny(cfg, `/order/${id}/cancel`, { method: "POST" });
     } else {
-      const { url } = withAuth(cfg, `${cfg.base}/cancel.php?id=${id}&id_order=${id}`);
-      await fetchJson(url);
+      await providerFetchAny(cfg, `/cancel.php?id=${id}&id_order=${id}`);
     }
   } catch {
     /* ignore */
@@ -268,10 +315,15 @@ export const providerMonitor = action({
       }
       try {
         const path = cfg.auth === "header" ? "/balance" : "/balance.php";
-        const { url, headers } = withAuth(cfg, `${cfg.base}${path}`);
-        const { ok, json, text } = await fetchJson(url, { headers });
+        const { ok, status, json, text } = await providerFetchAny(cfg, path);
         if (!ok) {
-          out.push({ key, label: cfg.label, configured: true, balance: null, error: text?.slice(0, 160) || `HTTP gagal (${key})` });
+          const msg =
+            status === 500 && cfg.auth !== "header"
+              ? `${cfg.label}: endpoint saldo provider (balance.php) error HTTP 500 — bukan masalah kunci API. Cek saldo manual di dashboard provider.`
+              : status === 0
+                ? `${cfg.label}: host API tidak terjangkau (DNS/ jaringan) — termasuk jalur cadangan.`
+                : text?.slice(0, 160) || `HTTP gagal (${key})`;
+          out.push({ key, label: cfg.label, configured: true, balance: null, error: msg.slice(0, 200) });
           continue;
         }
         const data = (json && json.data) || json || {};

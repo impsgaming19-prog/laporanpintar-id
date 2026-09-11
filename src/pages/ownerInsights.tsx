@@ -371,22 +371,25 @@ export function OwnerInsights({
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-semibold text-white">{p.label}</p>
                 <p className="text-[11px] text-zinc-500">
-                  {p.configured ? (p.balance == null ? "Saldo tidak terbaca" : "Saldo provider") : "Kunci API belum diisi di Keys/Environment"}
+                  {p.configured ? (p.balance == null ? "Saldo provider (gagal dibaca)" : "Saldo provider") : "Kunci API belum diisi di Keys/Environment"}
                 </p>
               </div>
-              {p.configured ? (
-                p.balance == null ? (
-                  <span className="text-[12px] text-amber-300">{p.error || "Error membaca saldo"}</span>
-                ) : (
-                  <span
-                    className="text-[15px] font-black whitespace-nowrap"
-                    style={{ color: p.balance < 10000 ? "#ff6b63" : p.balance < 50000 ? "#fbbf24" : ACCENT }}
-                  >
-                    {fmtRp(p.balance)}
-                  </span>
-                )
-              ) : (
-                <span className="text-[11px] text-zinc-500">belum aktif</span>
+              {!p.configured && <span className="text-[11px] text-zinc-500">belum aktif</span>}
+              {p.configured && p.balance == null && (
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300 whitespace-nowrap">
+                  Saldo tidak terbaca
+                </span>
+              )}
+              {p.configured && p.balance != null && (
+                <span
+                  className="text-[15px] font-black whitespace-nowrap"
+                  style={{ color: p.balance < 10000 ? "#ff6b63" : p.balance < 50000 ? "#fbbf24" : ACCENT }}
+                >
+                  {fmtRp(p.balance)}
+                </span>
+              )}
+              {p.configured && p.balance == null && p.error && (
+                <p className="w-full text-[11px] text-amber-200/75 leading-relaxed">{p.error}</p>
               )}
             </div>
           ))}

@@ -425,9 +425,16 @@ export const getProviderBalance = action({
       return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
     }
     const path = cfg.auth === "header" ? "/balance" : "/balance.php";
-    const { ok, status, json, text, viaFallback } = await providerFetch(cfg, path);
+    const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, path);
     if (!ok) {
-      return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
+      // Khusus endpoint saldo Ditznesia: balance.php memang sering membalas
+      // HTTP 500 dari sisi provider walau kunci valid (negara/layanan normal).
+      // Pesannya dibuat jelas supaya tidak disangka kunci salah.
+      const error =
+        status === 500 && cfg.auth !== "header"
+          ? `${cfg.label}: saldo tidak bisa dibaca — endpoint saldo provider (balance.php) error HTTP 500. Ini dari sisi provider, bukan kunci API. Cek saldo manual di dashboard provider.`
+          : explainHttpFailure(cfg.label, status, json, text, base);
+      return { ok: false, error };
     }
     const data = (json && json.data) || json || {};
     const balance = Number(data.balance ?? data.saldo ?? data.saldo_akun);
