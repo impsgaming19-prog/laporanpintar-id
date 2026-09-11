@@ -460,9 +460,9 @@ export const getProviderBalance = action({
  * Dipakai kalau pemanggil tidak mengirim nama server spesifik.
  */
 function publicServerName(provider: string): string {
-  if (provider === "kirimkode") return "Server OTP v1";
-  if (provider === "ditznesia") return "Server OTP v2";
-  return "Server OTP";
+  if (provider === "kirimkode") return "Server v1";
+  if (provider === "ditznesia") return "Server v2";
+  return "Server v3";
 }
 
 /**
@@ -500,7 +500,7 @@ type ProviderCountry = {
 export const listCountries = action({
   args: {
     provider: v.string(),
-    /** Nama server versi customer (mis. "Server OTP v3") untuk pesan error. */
+    /** Nama server versi customer (mis. "Server v2") untuk pesan error. */
     serverLabel: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
@@ -689,7 +689,7 @@ export const listServices = action({
     country: v.union(v.number(), v.string()),
     // Node asal negara (dari listCountries) — penting untuk KirimKode.
     server: v.optional(v.string()),
-    /** Nama server versi customer (mis. "Server OTP v3") untuk pesan error. */
+    /** Nama server versi customer (mis. "Server v2") untuk pesan error. */
     serverLabel: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
@@ -1048,7 +1048,7 @@ export const buyWithBalance = action({
     serviceName: v.optional(v.string()),
     /** Node asal negara (khusus KirimKode: api1..api10). */
     server: v.optional(v.string()),
-    /** Nama server versi customer (mis. "Server OTP v1") untuk riwayat transaksi. */
+    /** Nama server versi customer (mis. "Server v1") untuk riwayat transaksi. */
     serverLabel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1077,7 +1077,7 @@ export const buyWithBalance = action({
       operator: args.operator ?? "any",
       providerPrice,
       server: args.server,
-      publicLabel: args.serverLabel?.trim() || "Server OTP",
+      publicLabel: args.serverLabel?.trim() || "Server",
     });
 
     if (!order.ok || !order.orderId) {

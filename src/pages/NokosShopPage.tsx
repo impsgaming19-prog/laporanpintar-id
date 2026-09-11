@@ -126,38 +126,38 @@ type ServerDef = {
 const SERVER_LIST: ServerDef[] = [
   {
     id: "jasav1",
-    label: "Server OTP v1",
+    label: "Server v1",
     provider: "kirimkode",
-    providerLabel: "Stok terbanyak",
+    providerLabel: "Pilihan terlengkap",
     description:
-      "Pilihan negara paling banyak (300+ negara) dan stok paling tebal. Paling cocok untuk WhatsApp, Telegram, dan aplikasi populer.",
+      "Negara & layanan paling banyak (300+ negara), harga mulai Rp 250-an. Pakai ini kalau bingung mau pilih yang mana.",
     badge: "Populer",
   },
   {
     id: "jasav2",
-    label: "Server OTP v2",
+    label: "Server v2",
     provider: "ditznesia",
-    providerLabel: "Stok lengkap",
+    providerLabel: "Cadangan",
     description:
-      "Ratusan pilihan negara dan layanan. Pakai server ini kalau nomor di Server OTP v1 kebetulan habis.",
+      "Server cadangan kalau stok atau layanan di Server v1 sedang habis. Caranya sama, nomor tetap dikirim otomatis.",
     badge: null,
   },
   {
     id: "jasav3",
-    label: "Server OTP v3",
+    label: "Server v3",
     provider: "ditznesia_v2",
-    providerLabel: "Cadangan 1",
+    providerLabel: "Cadangan",
     description:
-      "Jalur cadangan supaya pembelian tetap jalan saat server lain ramai atau stoknya menipis.",
+      "Server cadangan tambahan supaya pembelian tetap jalan saat server lain ramai.",
     badge: null,
   },
   {
     id: "jasav4",
-    label: "Server OTP v4",
+    label: "Server v4",
     provider: "ditznesia_v2",
-    providerLabel: "Cadangan 2",
+    providerLabel: "Cadangan",
     description:
-      "Jalur cadangan terakhir. Pilih ini kalau server lain sedang gangguan — order tetap diproses otomatis.",
+      "Pilihan terakhir kalau server lain sedang gangguan. Saldo tetap aman — gagal order = saldo kembali otomatis.",
     badge: "Cadangan",
   },
 ];
@@ -1636,6 +1636,10 @@ export default function NokosShopPage() {
             </h2>
             <span className="text-[13px] text-zinc-400">Data real-time dari server</span>
           </div>
+          <p className="text-[12px] text-zinc-400 mb-3">
+            Bingung pilih yang mana? Pakai <b className="text-white">Server v1</b> — pilihan negara & layanan paling
+            lengkap. Server v2–v4 adalah cadangan kalau stok di v1 habis.
+          </p>
           {visibleServers.length === 0 ? (
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-sm text-amber-200">
               Semua server sedang nonaktif oleh Owner. Hubungi admin untuk menyalakan server.
@@ -2093,7 +2097,7 @@ export default function NokosShopPage() {
                       <div key={o.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 text-[13px]">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                           <span className="text-white font-semibold">{o.username || o.fullName}</span>
-                          <span className="text-zinc-400">{o.serverLabel || "Server OTP"} • {o.serviceName}</span>
+                          <span className="text-zinc-400">{o.serverLabel || "Server"} • {o.serviceName}</span>
                           <span className="text-zinc-500">{o.countryName}</span>
                           <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCls(o.status)}`}>
                             {o.otp ? `OTP: ${o.otp}` : statusLabel(o.status)}
@@ -2400,7 +2404,7 @@ function OrderRow({
     <div className="rounded-xl bg-zinc-900/60 border border-white/10 px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="text-white font-medium">
-          {item.serverLabel || "Server OTP"} • {item.serviceName}
+          {item.serverLabel || "Server"} • {item.serviceName}
         </span>
         <span className="text-zinc-400 text-[13px]">{item.countryName}</span>
         <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCls(item.status)}`}>

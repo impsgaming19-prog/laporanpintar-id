@@ -52,38 +52,38 @@ type ServerDef = {
 const SERVER_LIST: ServerDef[] = [
   {
     id: "jasav1",
-    label: "Server OTP v1",
+    label: "Server v1",
     provider: "kirimkode",
-    providerLabel: "Stok terbanyak",
+    providerLabel: "Pilihan terlengkap",
     description:
-      "Pilihan negara paling banyak (300+ negara) dan stok paling tebal. Paling cocok untuk WhatsApp, Telegram, dan aplikasi populer.",
+      "Negara & layanan paling banyak (300+ negara), harga mulai Rp 250-an. Pakai ini kalau bingung mau pilih yang mana.",
     badge: "Populer",
   },
   {
     id: "jasav2",
-    label: "Server OTP v2",
+    label: "Server v2",
     provider: "ditznesia",
-    providerLabel: "Stok lengkap",
+    providerLabel: "Cadangan",
     description:
-      "Ratusan pilihan negara dan layanan. Pakai server ini kalau nomor di Server OTP v1 kebetulan habis.",
+      "Server cadangan kalau stok atau layanan di Server v1 sedang habis. Caranya sama, nomor tetap dikirim otomatis.",
     badge: null,
   },
   {
     id: "jasav3",
-    label: "Server OTP v3",
+    label: "Server v3",
     provider: "ditznesia_v2",
-    providerLabel: "Cadangan 1",
+    providerLabel: "Cadangan",
     description:
-      "Jalur cadangan supaya pembelian tetap jalan saat server lain ramai atau stoknya menipis.",
+      "Server cadangan tambahan supaya pembelian tetap jalan saat server lain ramai.",
     badge: null,
   },
   {
     id: "jasav4",
-    label: "Server OTP v4",
+    label: "Server v4",
     provider: "ditznesia_v2",
-    providerLabel: "Cadangan 2",
+    providerLabel: "Cadangan",
     description:
-      "Jalur cadangan terakhir. Pilih ini kalau server lain sedang gangguan — order tetap diproses otomatis.",
+      "Pilihan terakhir kalau server lain sedang gangguan. Saldo tetap aman — gagal order = saldo kembali otomatis.",
     badge: "Cadangan",
   },
 ];
