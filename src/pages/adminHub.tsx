@@ -28,6 +28,9 @@ import {
   Gift,
   Landmark,
   Smartphone,
+  MessageSquare,
+  Send,
+  Bot,
 } from "lucide-react";
 import {
   apiAdminAdjustBalance,
@@ -61,7 +64,14 @@ import {
   type PayMethod,
   type PayMethodType,
   type PromoEntry,
+  apiSupportStaffThreads,
+  apiSupportStaffMessages,
+  apiSupportStaffReply,
+  apiSupportSetMode,
+  apiSupportAiStatus,
   type ShopUser,
+  type SupportMessage,
+  type SupportThread,
 } from "@/lib/convexApi";
 import { OwnerInsights } from "./ownerInsights";
 
@@ -111,7 +121,7 @@ const SERVER_ROWS = [
   { id: "jasav4", label: "Server v4", provider: "Cadangan", badge: "Baru", desc: "Jalur cadangan terakhir. Bisa dinyalakan/dimatikan seperti server lain." },
 ];
 
-type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "pembayaran" | "staff" | "promo" | "server" | "laporan" | "akun";
+type HubTab = "ringkasan" | "customer" | "transaksi" | "deposit" | "pembayaran" | "cs" | "staff" | "promo" | "server" | "laporan" | "akun";
 
 function Chip({ children, cls }: { children: ReactNode; cls?: string }) {
   return (
@@ -152,6 +162,242 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 const inputCls =
   "w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none";
 
+/* =====================================================================
+ * TAB BANTUAN CS — balas pesan/laporan customer (Owner & CS)
+ * ===================================================================== */
+function SupportAdminTab({
+  actorId,
+  onUnread,
+}: {
+  actorId: string;
+  onUnread?: (n: number) => void;
+}) {
+  const [threads, setThreads] = useState<SupportThread[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<SupportMessage[]>([]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [ai, setAi] = useState<{ enabled: boolean; model: string } | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const loadThreads = async () => {
+    const res = await apiSupportStaffThreads(actorId).catch(() => null);
+    if (!res?.ok || !res.threads) return;
+    setThreads(res.threads);
+    onUnread?.(res.unread || 0);
+    setActiveId((cur) =>
+      cur && res.threads!.some((t) => t.id === cur) ? cur : res.threads![0]?.id ?? null
+    );
+  };
+
+  useEffect(() => {
+    apiSupportAiStatus(actorId)
+      .then((r) => {
+        if (r.ok) setAi({ enabled: !!r.aiEnabled, model: r.model || "gpt-4o-mini" });
+      })
+      .catch(() => {});
+    loadThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actorId]);
+
+  useEffect(() => {
+    if (!activeId) {
+      setMessages([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const res = await apiSupportStaffMessages(actorId, activeId).catch(() => null);
+      if (!cancelled && res?.ok) setMessages(res.messages || []);
+    };
+    load();
+    const timer = setInterval(load, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, actorId]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, activeId]);
+
+  const reply = async () => {
+    const body = text.trim();
+    if (!body || !activeId || busy) return;
+    setBusy(true);
+    setText("");
+    await apiSupportStaffReply(actorId, activeId, body).catch(() => null);
+    const res = await apiSupportStaffMessages(actorId, activeId).catch(() => null);
+    if (res?.ok) setMessages(res.messages || []);
+    await loadThreads();
+    setBusy(false);
+  };
+
+  const changeMode = async (mode: string) => {
+    if (!activeId) return;
+    await apiSupportSetMode(actorId, activeId, mode).catch(() => null);
+    await loadThreads();
+  };
+
+  const active = threads.find((t) => t.id === activeId) || null;
+
+  return (
+    <div className="grid gap-3 md:grid-cols-[280px_1fr]">
+      {/* daftar percakapan */}
+      <div className="rounded-2xl border border-white/10 bg-zinc-900/50 overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
+          <p className="text-sm font-bold text-white flex items-center gap-2">
+            <MessageSquare className="w-4 h-4" style={{ color: ACCENT }} /> Pesan masuk
+          </p>
+          <button
+            onClick={loadThreads}
+            className="w-8 h-8 rounded-lg border border-white/10 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
+            title="Muat ulang"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="max-h-[420px] overflow-y-auto divide-y divide-white/5">
+          {threads.length === 0 && (
+            <p className="px-4 py-5 text-[12px] text-zinc-500">Belum ada pesan dari customer.</p>
+          )}
+          {threads.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveId(t.id)}
+              className={`w-full text-left px-4 py-3 transition-colors ${
+                t.id === activeId ? "bg-white/10" : "hover:bg-white/5"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[13px] font-bold text-white truncate">{t.userName || t.userEmail}</p>
+                {t.unreadForStaff > 0 && (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {t.unreadForStaff}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-500 truncate">{t.userEmail}</p>
+              <p className="text-[11px] text-zinc-400 truncate mt-0.5">{t.lastMessage || "—"}</p>
+              <p className="text-[10px] mt-1" style={{ color: t.mode === "human" ? "#7dd3fc" : ACCENT }}>
+                {t.mode === "human" ? "Ditangani admin/CS" : t.mode === "closed" ? "Ditutup" : "Dijawab asisten AI"}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* isi percakapan */}
+      <div className="rounded-2xl border border-white/10 bg-zinc-900/50 flex flex-col overflow-hidden min-h-[420px]">
+        {!active ? (
+          <p className="p-5 text-[12px] text-zinc-500">Pilih percakapan di sebelah kiri untuk membaca & membalas.</p>
+        ) : (
+          <>
+            <div className="px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-white truncate">{active.userName || active.userEmail}</p>
+                <p className="text-[11px] text-zinc-500 truncate">{active.userEmail}</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => changeMode("ai")}
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border ${
+                    active.mode === "ai" ? "border-transparent text-black" : "border-white/10 text-zinc-300 hover:bg-white/5"
+                  }`}
+                  style={active.mode === "ai" ? { background: ACCENT } : {}}
+                >
+                  Asisten AI
+                </button>
+                <button
+                  onClick={() => changeMode("human")}
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border ${
+                    active.mode === "human" ? "border-sky-400/40 text-sky-300 bg-sky-500/10" : "border-white/10 text-zinc-300 hover:bg-white/5"
+                  }`}
+                >
+                  Admin/CS
+                </button>
+                <button
+                  onClick={() => changeMode("closed")}
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border ${
+                    active.mode === "closed" ? "border-white/25 text-white bg-white/10" : "border-white/10 text-zinc-300 hover:bg-white/5"
+                  }`}
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+
+            <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 max-h-[380px]">
+              {messages.map((m) => {
+                const staff = m.role === "staff";
+                const aiMsg = m.role === "assistant";
+                return (
+                  <div key={m.id} className={`flex ${staff ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap border ${
+                        staff
+                          ? "bg-sky-500/15 border-sky-500/30 text-white"
+                          : aiMsg
+                            ? "bg-zinc-950/60 border-white/10 text-zinc-300"
+                            : "bg-red-600/15 border-red-500/25 text-white"
+                      }`}
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-wide mb-1 opacity-80">
+                        {staff ? `Admin/CS${m.authorName ? ` · ${m.authorName}` : ""}` : aiMsg ? "Asisten AI" : active.userName || "Customer"}
+                      </p>
+                      {m.body}
+                    </div>
+                  </div>
+                );
+              })}
+              {messages.length === 0 && (
+                <p className="text-[12px] text-zinc-500">Belum ada pesan di percakapan ini.</p>
+              )}
+            </div>
+
+            <div className="border-t border-white/10 p-3 flex items-end gap-2">
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    reply();
+                  }
+                }}
+                rows={1}
+                placeholder="Tulis balasan untuk customer… (Enter untuk kirim)"
+                className="flex-1 resize-none bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-white/25 max-h-28"
+              />
+              <button
+                onClick={reply}
+                disabled={busy || !text.trim()}
+                className="px-4 h-11 rounded-xl font-semibold flex items-center gap-2 disabled:opacity-40"
+                style={{ backgroundColor: ACCENT, color: DARK }}
+              >
+                {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                <span className="hidden sm:inline">Kirim</span>
+              </button>
+            </div>
+
+            <p className="px-4 pb-3 text-[11px] text-zinc-500 flex items-center gap-1.5">
+              <Bot className="w-3.5 h-3.5" />
+              {ai
+                ? ai.enabled
+                  ? `Asisten AI aktif (${ai.model}) — otomatis berhenti menjawab setelah admin balas.`
+                  : "Asisten AI belum aktif — isi OPENAI_API_KEY di Keys/Environment supaya jawaban otomatis jalan."
+                : "Memeriksa status asisten AI…"}
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AdminHub({
   user,
   onClose,
@@ -165,6 +411,7 @@ export function AdminHub({
   const actorId = user.id;
 
   const [tab, setTab] = useState<HubTab>(isOwner ? "ringkasan" : "customer");
+  const [csUnread, setCsUnread] = useState(0);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -258,6 +505,23 @@ export function AdminHub({
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ---------- notifikasi pesan bantuan baru (Owner & CS) ---------- */
+  useEffect(() => {
+    if (!isOwner && user.role !== "cs") return;
+    let stop = false;
+    const loadUnread = async () => {
+      const res = await apiSupportStaffThreads(actorId).catch(() => null);
+      if (!stop && res?.ok) setCsUnread(res.unread || 0);
+    };
+    loadUnread();
+    const timer = setInterval(loadUnread, 30000);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actorId]);
 
   /* ---------- derived ---------- */
   const customers = useMemo(() => users.filter((u) => u.role === "customer"), [users]);
@@ -604,6 +868,7 @@ export function AdminHub({
     { id: "ringkasan", label: "Ringkasan", icon: <BarChart3 className="w-4 h-4" />, ownerOnly: true },
     { id: "customer", label: "Customer", icon: <Users className="w-4 h-4" /> },
     { id: "transaksi", label: "Transaksi", icon: <ReceiptText className="w-4 h-4" /> },
+    { id: "cs", label: "Bantuan CS", icon: <MessageSquare className="w-4 h-4" /> },
     { id: "deposit", label: "Deposit", icon: <QrCode className="w-4 h-4" />, ownerOnly: true },
     { id: "pembayaran", label: "Pembayaran", icon: <Wallet className="w-4 h-4" />, ownerOnly: true },
     { id: "staff", label: "Staff CS", icon: <Headset className="w-4 h-4" />, ownerOnly: true },
@@ -710,6 +975,11 @@ export function AdminHub({
                   style={tab === t.id ? { background: ACCENT, boxShadow: "0 6px 18px -6px rgba(0,230,118,0.6)" } : {}}
                 >
                   {t.icon} {t.label}
+                  {t.id === "cs" && csUnread > 0 && (
+                    <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                      {csUnread > 99 ? "99+" : csUnread}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1599,6 +1869,9 @@ export function AdminHub({
                 </div>
               </div>
             )}
+
+            {/* ---- BANTUAN CS ---- */}
+            {tab === "cs" && <SupportAdminTab actorId={actorId} onUnread={setCsUnread} />}
 
             {/* ---- LAPORAN & MONITORING ---- */}
             {tab === "laporan" && isOwner && <OwnerInsights actorId={actorId} orders={orders} deposits={deposits} />}

@@ -758,6 +758,86 @@ export async function apiShopSetServerEnabled(
   return callAction("shop:setServerEnabled", { actorId, serverKey, enabled });
 }
 
+/* =====================================================================
+ * LAYANAN BANTUAN (CS) — customer <-> asisten AI <-> admin/CS
+ * ===================================================================== */
+
+export type SupportMessage = {
+  id: string;
+  role: "user" | "assistant" | "staff";
+  body: string;
+  authorName?: string | null;
+  createdAt: number;
+};
+
+export type SupportThread = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  /** "ai" (dijawab asisten) | "human" (ditangani admin/CS) | "closed" */
+  mode: string;
+  lastMessage: string;
+  lastMessageAt: number;
+  lastRole: string;
+  unreadForStaff: number;
+};
+
+/** Customer kirim pesan/laporan ke CS. */
+export async function apiSupportSend(
+  userId: string,
+  body: string
+): Promise<{ ok: boolean; mode?: string; error?: string }> {
+  return callAction("support:sendMessage", { userId, body });
+}
+
+/** Percakapan bantuan milik customer. */
+export async function apiSupportMyThread(
+  userId: string
+): Promise<{ ok: boolean; mode?: string; messages?: SupportMessage[]; error?: string }> {
+  return callAction("support:myThread", { userId });
+}
+
+/** Daftar percakapan bantuan (Owner & CS). */
+export async function apiSupportStaffThreads(
+  actorId: string
+): Promise<{ ok: boolean; threads?: SupportThread[]; unread?: number; error?: string }> {
+  return callAction("support:staffThreads", { actorId });
+}
+
+/** Isi satu percakapan (Owner & CS). */
+export async function apiSupportStaffMessages(
+  actorId: string,
+  threadId: string
+): Promise<{ ok: boolean; messages?: SupportMessage[]; error?: string }> {
+  return callAction("support:staffMessages", { actorId, threadId });
+}
+
+/** Balas percakapan sebagai admin/CS. */
+export async function apiSupportStaffReply(
+  actorId: string,
+  threadId: string,
+  body: string
+): Promise<{ ok: boolean; error?: string }> {
+  return callAction("support:staffReply", { actorId, threadId, body });
+}
+
+/** Ubah status percakapan: "ai" | "human" | "closed". */
+export async function apiSupportSetMode(
+  actorId: string,
+  threadId: string,
+  mode: string
+): Promise<{ ok: boolean; mode?: string; error?: string }> {
+  return callAction("support:staffSetMode", { actorId, threadId, mode });
+}
+
+/** Status asisten AI (aktif/tidak) untuk Panel Admin. */
+export async function apiSupportAiStatus(
+  actorId: string
+): Promise<{ ok: boolean; aiEnabled?: boolean; model?: string; error?: string }> {
+  return callAction("support:staffAiStatus", { actorId });
+}
+
 export function formatRupiah(value: number): string {
   return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value);
 }

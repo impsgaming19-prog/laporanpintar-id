@@ -73,6 +73,32 @@ export default defineSchema({
     .index("by_orderId", ["orderId"])
     .index("by_user", ["userId", "createdAt"]),
 
+  // Layanan Bantuan (CS) — satu percakapan per customer.
+  // mode: "ai" (dijawab asisten AI) | "human" (menunggu/dijawab admin/CS) | "closed"
+  supportThreads: defineTable({
+    userId: v.id("appUsers"),
+    userEmail: v.string(),
+    userName: v.string(),
+    mode: v.string(),
+    lastMessage: v.string(),
+    lastMessageAt: v.number(),
+    lastRole: v.string(), // "user" | "assistant" | "staff"
+    unreadForStaff: v.number(),
+    unreadForUser: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_lastMessageAt", ["lastMessageAt"]),
+
+  // Isi percakapan bantuan (customer, asisten AI, atau admin/CS).
+  supportMessages: defineTable({
+    threadId: v.id("supportThreads"),
+    role: v.string(), // "user" | "assistant" | "staff"
+    body: v.string(),
+    authorName: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_thread", ["threadId", "createdAt"]),
+
   // Registered users (synced from localStorage)
   chatUsers: defineTable({
     userId: v.string(),
