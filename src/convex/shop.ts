@@ -399,11 +399,12 @@ async function providerFetch(
 
 /** KirimKode memakai /order/{id}/status, Ditznesia memakai /sms.php?id_order=... */
 export const getOrderStatus = action({
-  args: { provider: v.string(), orderId: v.string() },
+  args: { provider: v.string(), orderId: v.string(), serverLabel: v.optional(v.string()) },
   handler: async (_ctx, args) => {
     const cfg = providerConfig(args.provider);
+    const pub = args.serverLabel?.trim() || publicServerName(args.provider);
     if (!cfg) {
-      return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
+      return { ok: false, error: `${pub} belum siap dipakai — kunci/URL server belum diatur.` };
     }
     const id = encodeURIComponent(args.orderId);
     // KirimKode: GET /order/{id}/status. Ditznesia v1/v2: GET /sms.php — docs resmi
@@ -412,12 +413,12 @@ export const getOrderStatus = action({
     const path = cfg.auth === "header" ? `/order/${id}/status` : `/sms.php?id=${id}&id_order=${id}`;
     const { ok, status, json, text, viaFallback } = await providerFetch(cfg, path);
     if (!ok) {
-      return { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
+      return { ok: false, error: extractErrorMessage(json, text, `${pub}: HTTP ${status}`) };
     }
     const data = (json && json.data) || json || {};
     const code = data.code ?? data.otp ?? data.sms ?? null;
     const number = extractNumberField(data);
-    return { ok: true, provider: cfg.label, orderId: args.orderId, code, number, viaFallback, raw: json };
+    return { ok: true, provider: pub, orderId: args.orderId, code, number, viaFallback, raw: json };
   },
 });
 
@@ -454,6 +455,16 @@ export const getProviderBalance = action({
 });
 
 /** Negara dari provider + node asal (khusus KirimKode yang punya banyak node). */
+/**
+ * Nama server yang boleh dilihat customer (tanpa menyebut nama provider/API).
+ * Dipakai kalau pemanggil tidak mengirim nama server spesifik.
+ */
+function publicServerName(provider: string): string {
+  if (provider === "kirimkode") return "Server OTP v1";
+  if (provider === "ditznesia") return "Server OTP v2";
+  return "Server OTP";
+}
+
 type ProviderCountry = {
   id: number | string;
   name: string;
@@ -463,11 +474,16 @@ type ProviderCountry = {
 
 /** Daftar negara yang tersedia di provider. */
 export const listCountries = action({
-  args: { provider: v.string() },
+  args: {
+    provider: v.string(),
+    /** Nama server versi customer (mis. "Server OTP v3") untuk pesan error. */
+    serverLabel: v.optional(v.string()),
+  },
   handler: async (_ctx, args) => {
     const cfg = providerConfig(args.provider);
+    const pub = args.serverLabel?.trim() || publicServerName(args.provider);
     if (!cfg) {
-      return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
+      return { ok: false, error: `${pub} belum siap dipakai — kunci/URL server belum diatur.` };
     }
     // KirimKode butuh param server (api1..api10), dan SETIAP node punya daftar
     // negara sendiri-sendiri. Dulu kita cuma pakai node pertama yang menjawab,
@@ -480,7 +496,7 @@ export const listCountries = action({
           const { url, headers } = withAuth(cfg, `${cfg.base}/countries?server=${server}`);
           const { ok, status, json, text } = await fetchJson(url, { headers });
           if (!ok || (json && json.success === false)) {
-            return { server, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`), countries: [] as ProviderCountry[] };
+            return { server, error: extractErrorMessage(json, text, `${pub}: HTTP ${status}`), countries: [] as ProviderCountry[] };
           }
           const data = (json && json.data) || [];
           const countries: ProviderCountry[] = Array.isArray(data)
@@ -518,7 +534,7 @@ export const listCountries = action({
         }
       }
       if (merged.size === 0) {
-        return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
+        return { ok: false, error: lastErr || `${pub}: semua server gagal.` };
       }
       const countries = [...merged.values()].sort((a, b) => {
         // Indonesia ditaruh paling depan (mayoritas pembeli), sisanya A-Z.
@@ -532,7 +548,7 @@ export const listCountries = action({
     }
     const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, "/negara.php");
     if (!ok) {
-      return { ok: false, error: explainHttpFailure(cfg.label, status, json, text, base) };
+      return { ok: false, error: explainHttpFailure(pub, status, json, text, base) };
     }
     const data = (json && json.data) || [];
     const countries = Array.isArray(data)
@@ -601,8 +617,11 @@ type FlatService = { id: string | null; name: string | null; service: string | n
 async function loadProviderServices(
   cfg: ResolvedProviderConfig,
   country: number | string,
-  server?: string
+  server?: string,
+  /** Nama server versi customer untuk pesan error (tanpa nama provider). */
+  publicLabel?: string
 ): Promise<{ ok: boolean; services: FlatService[]; error?: string; note?: string; viaFallback?: boolean; raw?: any }> {
+  const label = publicLabel?.trim() || cfg.label;
   const countryEnc = encodeURIComponent(String(country));
   if (cfg.auth === "header") {
     let lastErr = "";
@@ -614,7 +633,7 @@ async function loadProviderServices(
       const { ok, status, json, text } = await fetchJson(url, { headers });
       // HTTP error (401/500/...) = node bermasalah -> coba node lain.
       if (!ok && status >= 400) {
-        lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
+        lastErr = extractErrorMessage(json, text, `${label}: HTTP ${status}`);
         continue;
       }
       // Node menjawab (walau isinya "belum ada layanan") -> API memang hidup.
@@ -622,18 +641,18 @@ async function loadProviderServices(
       const data = (json && json.data) || [];
       const services = flattenServices(Array.isArray(data) ? data : []);
       if (services.length === 0) {
-        lastErr = extractErrorMessage(json, text, `${cfg.label} (${node}) belum punya layanan untuk negara ini.`);
+        lastErr = `${label}: belum ada layanan untuk negara ini.`;
         continue;
       }
       return { ok: true, services, raw: json };
     }
     // Semua node menjawab tapi negara ini belum punya layanan -> bukan error.
     if (reachable) return { ok: true, services: [], note: lastErr };
-    return { ok: false, services: [], error: lastErr || `${cfg.label}: semua server gagal.` };
+    return { ok: false, services: [], error: lastErr || `${label}: semua server gagal.` };
   }
   const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, `/layanan.php?negara=${countryEnc}`);
   if (!ok) {
-    return { ok: false, services: [], error: explainHttpFailure(cfg.label, status, json, text, base) };
+    return { ok: false, services: [], error: explainHttpFailure(label, status, json, text, base) };
   }
   const data = (json && json.data) || json || {};
   return { ok: true, services: flattenServices(data), viaFallback, raw: json };
@@ -646,14 +665,17 @@ export const listServices = action({
     country: v.union(v.number(), v.string()),
     // Node asal negara (dari listCountries) — penting untuk KirimKode.
     server: v.optional(v.string()),
+    /** Nama server versi customer (mis. "Server OTP v3") untuk pesan error. */
+    serverLabel: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
     const cfg = providerConfig(args.provider);
+    const pub = args.serverLabel?.trim() || publicServerName(args.provider);
     if (!cfg) {
-      return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
+      return { ok: false, error: `${pub} belum siap dipakai — kunci/URL server belum diatur.` };
     }
-    const res = await loadProviderServices(cfg, args.country, args.server);
-    if (!res.ok) return { ok: false, error: res.error || `${cfg.label}: gagal mengambil layanan.` };
+    const res = await loadProviderServices(cfg, args.country, args.server, pub);
+    if (!res.ok) return { ok: false, error: res.error || `${pub}: gagal mengambil layanan.` };
     return {
       ok: true,
       provider: cfg.label,
@@ -710,9 +732,16 @@ async function placeProviderOrder(opts: {
   providerPrice: number;
   /** Node asal negara (khusus KirimKode: api1..api10). */
   server?: string;
+  /**
+   * Nama pengganti provider di pesan error (dipakai jalur customer supaya nama
+   * provider/API tidak pernah tampil ke pembeli).
+   */
+  publicLabel?: string;
   extra?: any;
 }): Promise<Record<string, unknown>> {
   const cfg = providerConfig(opts.provider);
+  // Nama yang dipakai di pesan error: versi customer tidak menyebut provider.
+  const label = opts.publicLabel?.trim() || cfg?.label || opts.provider;
   if (!cfg) {
     const needed =
       opts.provider === "kirimkode"
@@ -722,7 +751,7 @@ async function placeProviderOrder(opts: {
           : "NOKOS_DITZNESIA_API2_KEY atau NOKOS_DITZNESIA_API_KEY (satu kunci akun cukup untuk kedua versi API)";
     return {
       ok: false,
-      error: `Kunci/URL untuk ${opts.provider} belum diatur di Keys/Environment (${needed}).`,
+      error: `${label} belum siap dipakai — kunci/URL server belum diatur di Keys/Environment (${needed}).`,
     };
   }
 
@@ -756,7 +785,7 @@ async function placeProviderOrder(opts: {
       body: JSON.stringify(body),
     });
     if (!ok) {
-      err = { ok: false, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`) };
+      err = { ok: false, error: extractErrorMessage(json, text, `${label}: HTTP ${status}`) };
     } else {
       raw = json;
       const data = (json && json.data) || json || {};
@@ -777,7 +806,7 @@ async function placeProviderOrder(opts: {
     }
     const { ok, status, json, text } = await providerFetch(cfg, `/order.php?${params.toString()}`);
     if (!ok) {
-      err = { ok: false, error: explainHttpFailure(cfg.label, status, json, text) };
+      err = { ok: false, error: explainHttpFailure(label, status, json, text) };
     } else {
       raw = json;
       const data = (json && json.data) || json || {};
@@ -798,7 +827,7 @@ async function placeProviderOrder(opts: {
     const text = raw ? JSON.stringify(raw).slice(0, 300) : "(kosong)";
     return {
       ok: false,
-      error: `${cfg.label} menjawab sukses tapi tidak ada id order. Respons: ${text}`,
+      error: `${label} menjawab sukses tapi tidak ada id order. Respons: ${text}`,
     };
   }
 
@@ -974,6 +1003,8 @@ export const buyWithBalance = action({
     serviceName: v.optional(v.string()),
     /** Node asal negara (khusus KirimKode: api1..api10). */
     server: v.optional(v.string()),
+    /** Nama server versi customer (mis. "Server OTP v1") untuk riwayat transaksi. */
+    serverLabel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     let providerPrice = Math.max(0, Math.floor(Number(args.providerPrice) || 0));
@@ -1001,6 +1032,7 @@ export const buyWithBalance = action({
       operator: args.operator ?? "any",
       providerPrice,
       server: args.server,
+      publicLabel: args.serverLabel?.trim() || "Server OTP",
     });
 
     if (!order.ok || !order.orderId) {
@@ -1023,6 +1055,7 @@ export const buyWithBalance = action({
       userId: args.userId,
       provider: args.provider,
       providerLabel: order.provider || args.provider,
+      serverLabel: args.serverLabel ?? undefined,
       country: String(args.country),
       countryName: args.countryName ?? undefined,
       service: String(args.service),

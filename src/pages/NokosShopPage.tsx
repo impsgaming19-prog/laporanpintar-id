@@ -118,42 +118,47 @@ type ServerDef = {
   badge: string | null;
 };
 
+/**
+ * Nama server yang dilihat customer. Sengaja TIDAK menyebut nama provider/API
+ * supaya pembeli tidak menembak langsung ke sumbernya. Nama provider tetap
+ * tersimpan di data order (kolom provider/providerLabel) untuk panel Owner.
+ */
 const SERVER_LIST: ServerDef[] = [
   {
     id: "jasav1",
-    label: "JasaOTP v1",
+    label: "Server OTP v1",
     provider: "kirimkode",
-    providerLabel: "KirimKode",
+    providerLabel: "Stok terbanyak",
     description:
-      "Terhubung langsung ke API KirimKode. Negara, layanan, stok, dan harga diambil langsung dari server.",
+      "Pilihan negara paling banyak (300+ negara) dan stok paling tebal. Paling cocok untuk WhatsApp, Telegram, dan aplikasi populer.",
     badge: "Populer",
   },
   {
     id: "jasav2",
-    label: "JasaOTP v2",
+    label: "Server OTP v2",
     provider: "ditznesia",
-    providerLabel: "Ditznesia",
+    providerLabel: "Stok lengkap",
     description:
-      "Server 3 (API Ditznesia v1). Data negara & layanan live dari server.",
+      "Ratusan pilihan negara dan layanan. Pakai server ini kalau nomor di Server OTP v1 kebetulan habis.",
     badge: null,
   },
   {
     id: "jasav3",
-    label: "JasaOTP v3",
+    label: "Server OTP v3",
     provider: "ditznesia_v2",
-    providerLabel: "Ditznesia API v2 (Server 4)",
+    providerLabel: "Cadangan 1",
     description:
-      "Server 4. Kalau host API v2 provider tidak bisa dihubungi, data diambil otomatis dari jalur API v1 (kunci akun sama).",
+      "Jalur cadangan supaya pembelian tetap jalan saat server lain ramai atau stoknya menipis.",
     badge: null,
   },
   {
     id: "jasav4",
-    label: "JasaOTP v4",
+    label: "Server OTP v4",
     provider: "ditznesia_v2",
-    providerLabel: "Ditznesia API v2 (Server 4)",
+    providerLabel: "Cadangan 2",
     description:
-      "Server 4 jalur tambahan dengan kunci API akun Ditznesia yang sama; tetap jalan walau host v2 sedang down.",
-    badge: "Baru",
+      "Jalur cadangan terakhir. Pilih ini kalau server lain sedang gangguan — order tetap diproses otomatis.",
+    badge: "Cadangan",
   },
 ];
 
@@ -224,7 +229,7 @@ function DepositSheet({
   const startQris = async () => {
     setBusy(true);
     setError(null);
-    setStatus("Membuat invoice QR Paymentku...");
+    setStatus("Membuat QR pembayaran...");
     try {
       const inv = await apiShopDepositCreate(userId, amount);
       if (!inv.ok || !inv.payUrl || !inv.referenceId) {
@@ -333,7 +338,7 @@ function DepositSheet({
         </div>
 
         <p className="text-[13px] text-zinc-400 mb-4 leading-relaxed">
-          Pilih nominal, lalu bayar via <b className="text-white">QR Paymentku</b> (saldo masuk otomatis) atau{" "}
+          Pilih nominal, lalu bayar via <b className="text-white">QRIS</b> (saldo masuk otomatis) atau{" "}
           <b className="text-white">Isi Manual QR / Bank / E-Wallet</b> (dikonfirmasi admin/CS sebelum saldo masuk).
         </p>
 
@@ -379,7 +384,7 @@ function DepositSheet({
         {cfg && cfg.paykuEnabled && (
           <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 mb-3">
             <p className="text-[13px] font-bold text-white flex items-center gap-2 mb-1">
-              <QrCode className="w-4 h-4" style={{ color: ACCENT }} /> QRIS Paymentku — otomatis
+              <QrCode className="w-4 h-4" style={{ color: ACCENT }} /> QRIS — otomatis
             </p>
             <p className="text-[12px] text-zinc-400 mb-3">Begitu pembayaran lunas, saldo langsung masuk tanpa konfirmasi.</p>
             <div className="flex gap-2">
@@ -721,7 +726,7 @@ export default function NokosShopPage() {
       let lastErr: any = null;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          const meta = await apiListCountriesMeta(server.provider);
+          const meta = await apiListCountriesMeta(server.provider, server.label);
           const list = meta.countries;
           if (cancelled) return;
           if (list.length === 0) {
@@ -770,7 +775,7 @@ export default function NokosShopPage() {
       let lastErr: any = null;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          const list = await apiListServices(server.provider, selectedCountryId, node);
+          const list = await apiListServices(server.provider, selectedCountryId, node, server.label);
           if (cancelled) return;
           setServices(list);
           if (list.length > 0) {
@@ -925,6 +930,7 @@ export default function NokosShopPage() {
         countryName: countries.find((c) => String(c.id) === String(selectedCountryId))?.name,
         serviceName: selectedService.name ?? undefined,
         server: countries.find((c) => String(c.id) === String(selectedCountryId))?.server ?? undefined,
+        serverLabel: server.label,
       });
       if (!res.ok || !res.orderId) {
         if (res.refunded && session) await refreshWalletOrders(session.user.id);
@@ -981,7 +987,7 @@ export default function NokosShopPage() {
   const handleCheckOtp = async () => {
     if (!resultOrderId || !session) return;
     setPayMessage("Mengecek OTP...");
-    const st = await apiGetOrderStatus(server?.provider || "kirimkode", resultOrderId).catch(() => null);
+    const st = await apiGetOrderStatus(server?.provider || "kirimkode", resultOrderId, server?.label).catch(() => null);
     if (st?.code != null && st.code !== "") {
       const otp = String(st.code);
       setResultOtp(otp);
@@ -1628,7 +1634,7 @@ export default function NokosShopPage() {
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: RED }} />
               Pilih Server
             </h2>
-            <span className="text-[13px] text-zinc-400">Data live dari API provider</span>
+            <span className="text-[13px] text-zinc-400">Data real-time dari server</span>
           </div>
           {visibleServers.length === 0 ? (
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-sm text-amber-200">
@@ -1688,8 +1694,7 @@ export default function NokosShopPage() {
               <div className="mb-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200 flex items-start gap-2">
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>
-                  Host API utama provider untuk server ini sedang tidak bisa dihubungi, jadi data diambil
-                  otomatis dari jalur API cadangan (kunci akun yang sama). Pembelian tetap berjalan normal.
+                  Server ini sedang memakai jalur cadangan otomatis supaya pembelian tetap berjalan normal.
                 </span>
               </div>
             )}
@@ -1714,7 +1719,7 @@ export default function NokosShopPage() {
                 {/* Negara */}
                 <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
                   <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
-                    <Globe className="w-4 h-4 text-red-500" /> Negara ({server.providerLabel})
+                    <Globe className="w-4 h-4 text-red-500" /> Negara
                   </h3>
                   <p className="text-[12px] text-zinc-500 mb-3">
                     {loadingData
@@ -2088,7 +2093,7 @@ export default function NokosShopPage() {
                       <div key={o.id} className="rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3 text-[13px]">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                           <span className="text-white font-semibold">{o.username || o.fullName}</span>
-                          <span className="text-zinc-400">{o.providerLabel} • {o.serviceName}</span>
+                          <span className="text-zinc-400">{o.serverLabel || "Server OTP"} • {o.serviceName}</span>
                           <span className="text-zinc-500">{o.countryName}</span>
                           <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCls(o.status)}`}>
                             {o.otp ? `OTP: ${o.otp}` : statusLabel(o.status)}
@@ -2155,8 +2160,8 @@ export default function NokosShopPage() {
                   );
                 })}
                 <p className="text-[12px] text-zinc-500 leading-relaxed mt-2">
-                  Server yang dimatikan tidak muncul di halaman beli customer. Provider baru bisa ditambahkan lewat
-                  pengembang (butuh kunci API dari provider tersebut).
+                  Server yang dimatikan tidak muncul di halaman beli customer. Menambah server baru perlu
+                  pengaturan tambahan dari pengembang.
                 </p>
               </div>
             )}
@@ -2289,7 +2294,7 @@ export default function NokosShopPage() {
               </div>
 
               <p className="text-[13px] text-zinc-400 mb-4 leading-relaxed">
-                Bayar via <b className="text-white">QR Paymentku</b> — begitu lunas, saldo langsung masuk ke
+                Bayar via <b className="text-white">QRIS</b> — begitu lunas, saldo langsung masuk ke
                 akun kamu secara otomatis. Pembelian nanti dipotong dari saldo ini.
               </p>
 
@@ -2364,7 +2369,7 @@ export default function NokosShopPage() {
 
       <footer className="border-t border-white/10 mt-12 py-6 text-center text-[12px] text-zinc-500">
         <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
-        <p className="mt-1">Harga yang tampil adalah harga yang kamu bayar. Pembayaran & isi saldo via QR Paymentku.</p>
+        <p className="mt-1">Harga yang tampil adalah harga yang kamu bayar. Pembayaran & isi saldo via QRIS.</p>
       </footer>
     </div>
   );
@@ -2395,7 +2400,7 @@ function OrderRow({
     <div className="rounded-xl bg-zinc-900/60 border border-white/10 px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="text-white font-medium">
-          {item.providerLabel} • {item.serviceName}
+          {item.serverLabel || "Server OTP"} • {item.serviceName}
         </span>
         <span className="text-zinc-400 text-[13px]">{item.countryName}</span>
         <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCls(item.status)}`}>
@@ -2831,7 +2836,7 @@ function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }) {
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
             {[
-              { icon: <Wallet className="w-6 h-6 text-red-500" />, step: "01", title: "Daftar & Isi Saldo", desc: "Buat akun gratis (email + password), lalu isi saldo lewat QR Paymentku. Saldo masuk otomatis begitu bayaran lunas." },
+              { icon: <Wallet className="w-6 h-6 text-red-500" />, step: "01", title: "Daftar & Isi Saldo", desc: "Buat akun gratis (email + password), lalu isi saldo lewat QRIS. Saldo masuk otomatis begitu bayaran lunas." },
               { icon: <ShoppingCart className="w-6 h-6 text-red-500" />, step: "02", title: "Pilih & Beli Nomor", desc: "Pilih server, negara, dan layanan yang kamu butuhkan. Harga final langsung dipotong dari saldo — tidak ada biaya lain." },
               { icon: <PhoneIncoming className="w-6 h-6 text-red-500" />, step: "03", title: "OTP Otomatis Masuk", desc: "Kode OTP dicek otomatis sampai ketemu lalu tampil di riwayat. Gagal = saldo kembali otomatis." },
             ].map((c) => (
@@ -2894,7 +2899,7 @@ function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }) {
 
       <footer className="relative z-10 border-t border-white/10 mt-6 py-6 text-center text-[12px] text-zinc-500">
         <p className="font-semibold text-white tracking-wide">KAKO NOKOS</p>
-        <p className="mt-1">Toko nomor virtual online — harga tampil = harga bayar. Pembayaran via QR Paymentku.</p>
+        <p className="mt-1">Toko nomor virtual online — harga tampil = harga bayar. Pembayaran via QRIS.</p>
       </footer>
 
       {/* ============ MODAL MASUK / DAFTAR ============ */}

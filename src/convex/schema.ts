@@ -52,6 +52,9 @@ export default defineSchema({
     userId: v.id("appUsers"),
     provider: v.string(),
     providerLabel: v.string(),
+    // Nama server yang dilihat customer (mis. "Server OTP v1") — provider/API
+    // tidak disebut ke customer, hanya untuk panel Owner.
+    serverLabel: v.optional(v.string()),
     country: v.string(),
     countryName: v.optional(v.string()),
     service: v.string(),

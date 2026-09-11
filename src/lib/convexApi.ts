@@ -148,11 +148,12 @@ export async function apiWaitPaid(
 /** Daftar negara dari server provider. */
 /** Sama seperti apiListCountries, tapi ikut memberi tahu apakah data diambil dari jalur cadangan. */
 export async function apiListCountriesMeta(
-  provider: ProviderId
+  provider: ProviderId,
+  serverLabel?: string
 ): Promise<{ countries: Country[]; viaFallback: boolean }> {
   const r = await callAction<{ ok?: boolean; countries?: Country[]; viaFallback?: boolean; error?: string }>(
     "shop:listCountries",
-    { provider }
+    { provider, ...(serverLabel ? { serverLabel } : {}) }
   );
   if (!r.ok || !Array.isArray(r.countries)) {
     throw new Error(r.error || "Gagal mengambil daftar negara dari server.");
@@ -160,19 +161,20 @@ export async function apiListCountriesMeta(
   return { countries: r.countries, viaFallback: Boolean(r.viaFallback) };
 }
 
-export async function apiListCountries(provider: ProviderId): Promise<Country[]> {
-  return (await apiListCountriesMeta(provider)).countries;
+export async function apiListCountries(provider: ProviderId, serverLabel?: string): Promise<Country[]> {
+  return (await apiListCountriesMeta(provider, serverLabel)).countries;
 }
 
 /** Daftar layanan untuk satu negara dari server provider. */
 export async function apiListServices(
   provider: ProviderId,
   country: number | string,
-  server?: string | null
+  server?: string | null,
+  serverLabel?: string | null
 ): Promise<Service[]> {
   const r = await callAction<{ ok?: boolean; services?: Service[]; error?: string }>(
     "shop:listServices",
-    { provider, country, ...(server ? { server } : {}) }
+    { provider, country, ...(server ? { server } : {}), ...(serverLabel ? { serverLabel } : {}) }
   );
   if (!r.ok || !Array.isArray(r.services)) {
     throw new Error(r.error || "Gagal mengambil daftar layanan dari server.");
@@ -198,14 +200,18 @@ export async function apiCreateNumberOrder(opts: {
 }
 
 /** Ambil OTP / status order. */
-export async function apiGetOrderStatus(provider: ProviderId, orderId: string): Promise<{
+export async function apiGetOrderStatus(
+  provider: ProviderId,
+  orderId: string,
+  serverLabel?: string
+): Promise<{
   ok?: boolean;
   code?: string | number | null;
   number?: string | null;
   error?: string;
   raw?: unknown;
 }> {
-  return callAction("shop:getOrderStatus", { provider, orderId });
+  return callAction("shop:getOrderStatus", { provider, orderId, ...(serverLabel ? { serverLabel } : {}) });
 }
 
 /* =====================================================================
@@ -223,6 +229,8 @@ export type ShopOrder = {
   id: string;
   provider: string;
   providerLabel: string;
+  /** Nama server versi customer (mis. "Server OTP v1"). */
+  serverLabel?: string | null;
   countryName: string;
   serviceName: string;
   orderId: string;
@@ -309,6 +317,8 @@ export async function apiShopBuyWithBalance(opts: {
   operator?: number | string;
   /** Node asal negara (khusus KirimKode). */
   server?: string | null;
+  /** Nama server versi customer (mis. "Server OTP v1") untuk riwayat transaksi. */
+  serverLabel?: string | null;
 }): Promise<{
   ok: boolean;
   orderId?: string | null;
@@ -329,6 +339,7 @@ export async function apiShopBuyWithBalance(opts: {
     serviceName: opts.serviceName ?? undefined,
     operator: opts.operator ?? "any",
     ...(opts.server ? { server: opts.server } : {}),
+    ...(opts.serverLabel ? { serverLabel: opts.serverLabel } : {}),
   });
 }
 

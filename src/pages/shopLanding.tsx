@@ -48,42 +48,43 @@ type ServerDef = {
   badge: string | null;
 };
 
+/** Nama server versi customer — tanpa menyebut nama provider/API. */
 const SERVER_LIST: ServerDef[] = [
   {
     id: "jasav1",
-    label: "JasaOTP v1",
+    label: "Server OTP v1",
     provider: "kirimkode",
-    providerLabel: "KirimKode",
+    providerLabel: "Stok terbanyak",
     description:
-      "Terhubung langsung ke API KirimKode. Negara, layanan, stok, dan harga diambil langsung dari server.",
+      "Pilihan negara paling banyak (300+ negara) dan stok paling tebal. Paling cocok untuk WhatsApp, Telegram, dan aplikasi populer.",
     badge: "Populer",
   },
   {
     id: "jasav2",
-    label: "JasaOTP v2",
+    label: "Server OTP v2",
     provider: "ditznesia",
-    providerLabel: "Ditznesia",
+    providerLabel: "Stok lengkap",
     description:
-      "Server 3 (API Ditznesia v1). Data negara & layanan live dari server.",
+      "Ratusan pilihan negara dan layanan. Pakai server ini kalau nomor di Server OTP v1 kebetulan habis.",
     badge: null,
   },
   {
     id: "jasav3",
-    label: "JasaOTP v3",
+    label: "Server OTP v3",
     provider: "ditznesia_v2",
-    providerLabel: "Ditznesia API v2",
+    providerLabel: "Cadangan 1",
     description:
-      "Terhubung langsung ke API Ditznesia v2. Pilihan nomor mengikuti stok server.",
+      "Jalur cadangan supaya pembelian tetap jalan saat server lain ramai atau stoknya menipis.",
     badge: null,
   },
   {
     id: "jasav4",
-    label: "JasaOTP v4",
+    label: "Server OTP v4",
     provider: "ditznesia_v2",
-    providerLabel: "Ditznesia API v2",
+    providerLabel: "Cadangan 2",
     description:
-      "Server 4 (API Ditznesia v2). Otomatis memakai kunci API akun Ditznesia yang sama dengan server v1.",
-    badge: "Baru",
+      "Jalur cadangan terakhir. Pilih ini kalau server lain sedang gangguan — order tetap diproses otomatis.",
+    badge: "Cadangan",
   },
 ];
 
@@ -545,7 +546,7 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
           </motion.p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
             {[
-              { icon: <Wallet className="w-6 h-6 text-red-500" />, step: "01", title: "Daftar & Isi Saldo", desc: "Buat akun gratis (email + password), lalu isi saldo lewat QR Paymentku. Saldo masuk otomatis begitu bayaran lunas." },
+              { icon: <Wallet className="w-6 h-6 text-red-500" />, step: "01", title: "Daftar & Isi Saldo", desc: "Buat akun gratis (email + password), lalu isi saldo lewat QRIS. Saldo masuk otomatis begitu bayaran lunas." },
               { icon: <ShoppingCart className="w-6 h-6 text-red-500" />, step: "02", title: "Pilih & Beli Nomor", desc: "Pilih server, negara, dan layanan yang kamu butuhkan. Harga final langsung dipotong dari saldo — tidak ada biaya lain." },
               { icon: <PhoneIncoming className="w-6 h-6 text-red-500" />, step: "03", title: "OTP Otomatis Masuk", desc: "Kode OTP dicek otomatis sampai ketemu lalu tampil di riwayat. Gagal = saldo kembali otomatis." },
             ].map((c, i) => (
@@ -651,7 +652,7 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
               },
               {
                 q: "Bagaimana cara isi saldo?",
-                a: "Login → klik Isi Saldo → pilih nominal → bayar lewat QRIS Paymentku → saldo masuk otomatis ke akun dalam beberapa detik setelah pembayaran lunas.",
+                a: "Login → klik Isi Saldo → pilih nominal → bayar lewat QRIS → saldo masuk otomatis ke akun dalam beberapa detik setelah pembayaran lunas.",
               },
               {
                 q: "Apakah data & saldo saya aman?",
@@ -659,7 +660,7 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
               },
               {
                 q: "Kenapa ada server/layanan yang tidak muncul?",
-                a: "Kadang server provider sedang gangguan, stok habis, atau dimatikan sementara oleh admin. Coba pilih server lain atau buka lagi beberapa menit kemudian.",
+                a: "Kadang server sedang gangguan, stok habis, atau dimatikan sementara oleh admin. Coba pilih server lain atau buka lagi beberapa menit kemudian.",
               },
               {
                 q: "Beli nomor untuk apa saja?",
@@ -752,7 +753,7 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
         <p className="font-semibold tracking-wide" style={{ color: ACCENT }}>
           KAKO NOKOS
         </p>
-        <p className="mt-1">Toko nomor virtual online — harga tampil = harga bayar. Pembayaran via QR Paymentku.</p>
+        <p className="mt-1">Toko nomor virtual online — harga tampil = harga bayar. Pembayaran via QRIS.</p>
       </footer>
 
       {/* ============ MODAL MASUK / DAFTAR ============ */}
