@@ -123,11 +123,16 @@ function computeSellPrice(providerPrice: number): number {
 }
 
 function extractErrorMessage(json: any, text: string, fallback: string): string {
-  const msg =
-    (json && (json.message || json.msg || json.error)) ||
+  const cand =
+    (json && (json.message || json.msg || json.error || json.error_message)) ||
     (json && json.data && (json.data.message || json.data.error)) ||
     "";
-  if (msg) return String(msg);
+  // Sebagian API menaruh errornya sebagai objek: { error: { message, code } }.
+  const msg =
+    cand && typeof cand === "object"
+      ? cand.message || cand.msg || cand.error || JSON.stringify(cand).slice(0, 200)
+      : cand;
+  if (msg) return String(msg).slice(0, 300);
   return text && text.trim() ? text.slice(0, 300) : fallback;
 }
 
@@ -448,6 +453,14 @@ export const getProviderBalance = action({
   },
 });
 
+/** Negara dari provider + node asal (khusus KirimKode yang punya banyak node). */
+type ProviderCountry = {
+  id: number | string;
+  name: string;
+  code: string | null;
+  server?: string;
+};
+
 /** Daftar negara yang tersedia di provider. */
 export const listCountries = action({
   args: { provider: v.string() },
@@ -456,27 +469,66 @@ export const listCountries = action({
     if (!cfg) {
       return { ok: false, error: `Kunci/URL untuk ${args.provider} belum diatur di Keys/Environment.` };
     }
-    // KirimKode butuh param server (api1..api10) untuk daftar negara/layanan.
+    // KirimKode butuh param server (api1..api10), dan SETIAP node punya daftar
+    // negara sendiri-sendiri. Dulu kita cuma pakai node pertama yang menjawab,
+    // jadi pilihan negara cuma segelintir. Sekarang semua node diambil lalu
+    // digabung supaya pilihan negara maksimal. Node asal tiap negara disimpan
+    // di field `server` supaya saat beli nomor dipesan ke node yang benar.
     if (cfg.auth === "header") {
+      const results = await Promise.all(
+        kirimkodeServerCandidates().map(async (server) => {
+          const { url, headers } = withAuth(cfg, `${cfg.base}/countries?server=${server}`);
+          const { ok, status, json, text } = await fetchJson(url, { headers });
+          if (!ok || (json && json.success === false)) {
+            return { server, error: extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`), countries: [] as ProviderCountry[] };
+          }
+          const data = (json && json.data) || [];
+          const countries: ProviderCountry[] = Array.isArray(data)
+            ? data
+                .filter((c: any) => (c.id ?? c.id_negara) != null)
+                .map((c: any) => ({
+                  id: c.id ?? c.id_negara,
+                  name: String(c.name ?? c.nama_negara ?? c.country ?? c.id),
+                  code: c.code ?? c.kode ?? null,
+                  server,
+                }))
+            : [];
+          return { server, error: "", countries };
+        })
+      );
+      const merged = new Map<string, ProviderCountry>();
+      const seenNames = new Set<string>();
+      const nodes: string[] = [];
       let lastErr = "";
-      for (const server of kirimkodeServerCandidates()) {
-        const { url, headers } = withAuth(cfg, `${cfg.base}/countries?server=${server}`);
-        const { ok, status, json, text } = await fetchJson(url, { headers });
-        if (!ok || (json && json.success === false)) {
-          lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
+      for (const r of results) {
+        if (r.error) {
+          lastErr = r.error;
           continue;
         }
-        const data = (json && json.data) || [];
-        const countries = Array.isArray(data)
-          ? data.map((c: any) => ({
-              id: c.id ?? c.id_negara ?? null,
-              name: c.name ?? c.nama_negara ?? c.country ?? String(c.id ?? ""),
-              code: c.code ?? c.kode ?? null,
-            }))
-          : [];
-        return { ok: true, provider: cfg.label, countries, raw: json };
+        nodes.push(r.server);
+        for (const c of r.countries) {
+          const idKey = `${r.server}|${String(c.id)}`;
+          // Sebagian node memakai ruang ID dan penamaan sendiri (mis. api1
+          // "albana"/id kecil vs api6 "albania"/id besar) — jadi selain ID,
+          // nama yang sama juga tidak diduplikasi.
+          const nameKey = c.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (merged.has(idKey) || (nameKey && seenNames.has(nameKey))) continue;
+          merged.set(idKey, c);
+          if (nameKey) seenNames.add(nameKey);
+        }
       }
-      return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
+      if (merged.size === 0) {
+        return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
+      }
+      const countries = [...merged.values()].sort((a, b) => {
+        // Indonesia ditaruh paling depan (mayoritas pembeli), sisanya A-Z.
+        const rank = (n: string) => (n.toLowerCase().includes("indonesia") ? 0 : 1);
+        const ra = rank(a.name);
+        const rb = rank(b.name);
+        if (ra !== rb) return ra - rb;
+        return a.name.localeCompare(b.name);
+      });
+      return { ok: true, provider: cfg.label, countries, nodes, raw: null };
     }
     const { ok, status, json, text, base, viaFallback } = await providerFetch(cfg, "/negara.php");
     if (!ok) {
@@ -534,7 +586,12 @@ function flattenServices(root: any): Array<{
 
 /** Daftar layanan untuk sebuah negara di provider. */
 export const listServices = action({
-  args: { provider: v.string(), country: v.union(v.number(), v.string()) },
+  args: {
+    provider: v.string(),
+    country: v.union(v.number(), v.string()),
+    // Node asal negara (dari listCountries) — penting untuk KirimKode.
+    server: v.optional(v.string()),
+  },
   handler: async (_ctx, args) => {
     const cfg = providerConfig(args.provider);
     if (!cfg) {
@@ -543,20 +600,33 @@ export const listServices = action({
     const countryEnc = encodeURIComponent(String(args.country));
     if (cfg.auth === "header") {
       let lastErr = "";
-      for (const server of kirimkodeServerCandidates()) {
+      let reachable = false;
+      // Node asal negara dicoba lebih dulu, baru node lain sebagai cadangan.
+      const nodeOrder = [
+        ...(args.server ? [args.server] : []),
+        ...kirimkodeServerCandidates().filter((s) => s !== args.server),
+      ];
+      for (const server of nodeOrder) {
         const { url, headers } = withAuth(cfg, `${cfg.base}/services?country=${countryEnc}&server=${server}`);
         const { ok, status, json, text } = await fetchJson(url, { headers });
-        if (!ok || (json && json.success === false)) {
+        // HTTP error (401/500/...) = node bermasalah -> coba node lain.
+        if (!ok && status >= 400) {
           lastErr = extractErrorMessage(json, text, `${cfg.label}: HTTP ${status}`);
           continue;
         }
+        // Node menjawab (walau isinya "belum ada layanan") -> API memang hidup.
+        reachable = true;
         const data = (json && json.data) || [];
         const services = flattenServices(Array.isArray(data) ? data : []);
         if (services.length === 0) {
-          lastErr = `${cfg.label} (${server}) tidak mengembalikan layanan untuk negara ini.`;
+          lastErr = extractErrorMessage(json, text, `${cfg.label} (${server}) belum punya layanan untuk negara ini.`);
           continue;
         }
         return { ok: true, provider: cfg.label, services, raw: json };
+      }
+      // Semua node menjawab tapi negara ini belum punya layanan -> bukan error.
+      if (reachable) {
+        return { ok: true, provider: cfg.label, services: [], note: lastErr };
       }
       return { ok: false, error: lastErr || `${cfg.label}: semua server gagal.` };
     }
@@ -585,6 +655,8 @@ async function placeProviderOrder(opts: {
   service: number | string;
   operator?: number | string;
   providerPrice: number;
+  /** Node asal negara (khusus KirimKode: api1..api10). */
+  server?: string;
   extra?: any;
 }): Promise<Record<string, unknown>> {
   const cfg = providerConfig(opts.provider);
@@ -613,7 +685,7 @@ async function placeProviderOrder(opts: {
   let err: { ok: false; error: string } | null = null;
 
   if (cfg.auth === "header") {
-    const server = (process.env.NOKOS_KIRIMKODE_SERVER || "api4").trim() || "api4";
+    const server = (opts.server || process.env.NOKOS_KIRIMKODE_SERVER || "api4").trim() || "api4";
     const body: Record<string, unknown> = {
       server,
       country,
@@ -695,6 +767,7 @@ export const createNumberOrder = action({
     service: v.union(v.number(), v.string()),
     operator: v.optional(v.union(v.number(), v.string())),
     providerPrice: v.number(),
+    server: v.optional(v.string()),
     extra: v.optional(v.any()),
   },
   handler: async (_ctx, args) => placeProviderOrder(args),
@@ -846,6 +919,8 @@ export const buyWithBalance = action({
     providerPrice: v.number(),
     countryName: v.optional(v.string()),
     serviceName: v.optional(v.string()),
+    /** Node asal negara (khusus KirimKode: api1..api10). */
+    server: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const providerPrice = Math.max(0, Math.floor(Number(args.providerPrice) || 0));
@@ -865,6 +940,7 @@ export const buyWithBalance = action({
       service: args.service,
       operator: args.operator ?? "any",
       providerPrice,
+      server: args.server,
     });
 
     if (!order.ok || !order.orderId) {

@@ -165,6 +165,9 @@ const roleMeta: Record<string, { label: string; cls: string }> = {
 
 const CANCEL_MIN_SECONDS = 120;
 
+/** Jumlah maksimal chip negara yang dirender sekaligus (daftar bisa 300+ negara). */
+const MAX_COUNTRY_CHIPS = 90;
+
 type PayPhase = "idle" | "processing" | "waitingOtp" | "success" | "error";
 
 const DEPOSIT_PRESETS = [10000, 25000, 50000, 100000, 250000, 500000];
@@ -760,10 +763,13 @@ export default function NokosShopPage() {
     setLoadingData(true);
 
     const load = async () => {
+      // Negara dari KirimKode datang dari node tertentu (api1..api10); layanan
+      // harus diminta ke node yang sama supaya data & harga cocok.
+      const node = countries.find((c) => String(c.id) === String(selectedCountryId))?.server || undefined;
       let lastErr: any = null;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          const list = await apiListServices(server.provider, selectedCountryId);
+          const list = await apiListServices(server.provider, selectedCountryId, node);
           if (cancelled) return;
           setServices(list);
           if (list.length > 0) {
@@ -917,6 +923,7 @@ export default function NokosShopPage() {
         providerPrice: selectedService.price,
         countryName: countries.find((c) => String(c.id) === String(selectedCountryId))?.name,
         serviceName: selectedService.name ?? undefined,
+        server: countries.find((c) => String(c.id) === String(selectedCountryId))?.server ?? undefined,
       });
       if (!res.ok || !res.orderId) {
         if (res.refunded && session) await refreshWalletOrders(session.user.id);
@@ -1736,7 +1743,7 @@ export default function NokosShopPage() {
                         </div>
                       ) : (
                         <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
-                          {visibleCountries.map((c) => {
+                          {visibleCountries.slice(0, MAX_COUNTRY_CHIPS).map((c) => {
                             const key = String(c.id ?? c.name);
                             const active = String(selectedCountryId) === key;
                             return (
@@ -1756,6 +1763,12 @@ export default function NokosShopPage() {
                               </button>
                             );
                           })}
+                          {visibleCountries.length > MAX_COUNTRY_CHIPS && (
+                            <p className="w-full text-[11px] text-zinc-500 pt-1">
+                              +{visibleCountries.length - MAX_COUNTRY_CHIPS} negara lagi — tulis di kolom
+                              pencarian untuk mempersempit pilihan.
+                            </p>
+                          )}
                         </div>
                       )}
                     </>
@@ -1775,9 +1788,15 @@ export default function NokosShopPage() {
                       : `${services.length} layanan tersedia`}
                   </p>
                   {services.length === 0 ? (
-                    <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Memuat layanan...
-                    </div>
+                    loadingData ? (
+                      <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6 justify-center">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Memuat layanan...
+                      </div>
+                    ) : (
+                      <div className="text-[13px] text-zinc-500 py-6 text-center">
+                        Belum ada layanan untuk negara ini — coba pilih negara lain.
+                      </div>
+                    )
                   ) : (
                     <>
                       <div className="relative mb-3">

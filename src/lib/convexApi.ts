@@ -31,7 +31,13 @@ export type CheckPaymentResult = {
   error?: string;
 };
 
-export type Country = { id: number | string | null; name: string; code?: string | null };
+export type Country = {
+  id: number | string | null;
+  name: string;
+  code?: string | null;
+  /** Node asal negara (khusus KirimKode: api1..api10) — dipakai saat beli nomor. */
+  server?: string | null;
+};
 
 export type Service = {
   id: number | string | null;
@@ -158,11 +164,12 @@ export async function apiListCountries(provider: ProviderId): Promise<Country[]>
 /** Daftar layanan untuk satu negara dari server provider. */
 export async function apiListServices(
   provider: ProviderId,
-  country: number | string
+  country: number | string,
+  server?: string | null
 ): Promise<Service[]> {
   const r = await callAction<{ ok?: boolean; services?: Service[]; error?: string }>(
     "shop:listServices",
-    { provider, country }
+    { provider, country, ...(server ? { server } : {}) }
   );
   if (!r.ok || !Array.isArray(r.services)) {
     throw new Error(r.error || "Gagal mengambil daftar layanan dari server.");
@@ -297,6 +304,8 @@ export async function apiShopBuyWithBalance(opts: {
   countryName?: string;
   serviceName?: string;
   operator?: number | string;
+  /** Node asal negara (khusus KirimKode). */
+  server?: string | null;
 }): Promise<{
   ok: boolean;
   orderId?: string | null;
@@ -316,6 +325,7 @@ export async function apiShopBuyWithBalance(opts: {
     countryName: opts.countryName ?? undefined,
     serviceName: opts.serviceName ?? undefined,
     operator: opts.operator ?? "any",
+    ...(opts.server ? { server: opts.server } : {}),
   });
 }
 
