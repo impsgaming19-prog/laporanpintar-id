@@ -180,6 +180,8 @@ const MAX_COUNTRY_CHIPS = 90;
 type PayPhase = "idle" | "processing" | "waitingOtp" | "success" | "error";
 
 const DEPOSIT_PRESETS = [10000, 25000, 50000, 100000, 250000, 500000];
+/** Minimal isi saldo (QRIS otomatis & isi manual) — harus sama dengan backend. */
+const DEPOSIT_MIN = 10000;
 
 /* =====================================================================
  * SHEET ISI SALDO — QR Paymentku (otomatis) + Isi Manual (QR/Bank/E-Wallet)
@@ -197,7 +199,7 @@ function DepositSheet({
   onClose: () => void;
   onBalance: (balance: number) => void;
 }) {
-  const [amount, setAmount] = useState(initialAmount && initialAmount >= 5000 ? initialAmount : 25000);
+  const [amount, setAmount] = useState(initialAmount && initialAmount >= DEPOSIT_MIN ? initialAmount : 25000);
   const [cfg, setCfg] = useState<{ paykuEnabled: boolean; methods: PayMethod[] } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +211,7 @@ function DepositSheet({
 
   useEffect(() => {
     if (!open) return;
-    setAmount(initialAmount && initialAmount >= 5000 ? initialAmount : 25000);
+    setAmount(initialAmount && initialAmount >= DEPOSIT_MIN ? initialAmount : 25000);
     setStatus(null);
     setError(null);
     setRefId(null);
@@ -294,6 +296,10 @@ function DepositSheet({
       setError("Pilih metode pembayaran dulu.");
       return;
     }
+    if (amount < DEPOSIT_MIN) {
+      setError(`Minimal deposit Rp ${formatRupiah(DEPOSIT_MIN)}.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     setStatus(null);
@@ -341,9 +347,17 @@ function DepositSheet({
           </button>
         </div>
 
-        <p className="text-[13px] text-zinc-400 mb-4 leading-relaxed">
+        <p className="text-[13px] text-zinc-400 mb-3 leading-relaxed">
           Pilih nominal, lalu bayar via <b className="text-white">QRIS</b> (saldo masuk otomatis) atau{" "}
           <b className="text-white">Isi Manual QR / Bank / E-Wallet</b> (dikonfirmasi admin/CS sebelum saldo masuk).
+        </p>
+
+        <p className="text-[12px] mb-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-amber-200 flex items-center gap-2 leading-relaxed">
+          <Info className="w-4 h-4 flex-shrink-0" />
+          <span>
+            Minimal deposit <b className="text-white">Rp {formatRupiah(DEPOSIT_MIN)}</b> — berlaku untuk QRIS otomatis &
+            isi manual.
+          </span>
         </p>
 
         {!cfg && (
@@ -377,13 +391,16 @@ function DepositSheet({
           <span className="text-[13px] text-zinc-400">Rp</span>
           <input
             type="number"
-            min={5000}
+            min={DEPOSIT_MIN}
             step={1000}
             value={amount}
-            onChange={(e) => setAmount(Math.max(5000, Number(e.target.value) || 0))}
+            onChange={(e) => setAmount(Math.max(DEPOSIT_MIN, Number(e.target.value) || 0))}
             className="w-full rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-white text-sm focus:border-red-500 focus:outline-none"
           />
         </div>
+
+        <p className="text-[11px] text-zinc-500 -mt-3 mb-4">Nominal paling kecil Rp {formatRupiah(DEPOSIT_MIN)}.</p>
+
 
         {cfg && cfg.paykuEnabled && (
           <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 mb-3">
@@ -394,7 +411,7 @@ function DepositSheet({
             <div className="flex gap-2">
               <button
                 onClick={startQris}
-                disabled={busy || amount < 5000}
+                disabled={busy || amount < DEPOSIT_MIN}
                 className="flex-1 py-3 rounded-xl text-sm font-bold text-black hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
                 style={{ backgroundColor: ACCENT }}
               >
@@ -476,7 +493,7 @@ function DepositSheet({
                   />
                   <button
                     onClick={submitManual}
-                    disabled={busy || amount < 5000}
+                    disabled={busy || amount < DEPOSIT_MIN}
                     className="w-full py-3 rounded-xl text-sm font-bold text-black hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
                     style={{ backgroundColor: ACCENT }}
                   >

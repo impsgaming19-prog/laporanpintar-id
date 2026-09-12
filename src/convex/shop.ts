@@ -53,6 +53,8 @@ import { internal } from "./_generated/api";
 const I = internal as any;
 
 const PAYMENTKU_BASE_DEFAULT = "https://paymenku.com/api/v1";
+/** Minimal isi saldo (QRIS otomatis & isi manual) — harus sama dengan tampilan customer. */
+const DEPOSIT_MIN = 10000;
 const KIRIMKODE_BASE_DEFAULT = "https://api.kirimkode.com/v1";
 const DITZNESIA_BASE_DEFAULT = "https://api.ditznesia.com/v1";
 // Sesuai docs resmi Ditznesia (ditznesia.com/api-v2): base v2 = https://api.jasaotp.id/v2
@@ -1098,7 +1100,11 @@ export const depositCreate = action({
     if (!apiKey) {
       return { ok: false, error: "PAYMENTKU_API_KEY belum diatur di Keys/Environment." };
     }
-    const amount = Math.max(5000, Math.floor(args.amount));
+    const diminta = Math.floor(Number(args.amount) || 0);
+    if (diminta < DEPOSIT_MIN) {
+      return { ok: false, error: `Minimal deposit Rp 10.000 (QRIS otomatis).` };
+    }
+    const amount = Math.max(DEPOSIT_MIN, diminta);
     const referenceId = makeReferenceId("DEP");
     const base = (process.env.PAYMENTKU_API_URL || PAYMENTKU_BASE_DEFAULT).replace(/\/+$/, "");
     const body: Record<string, unknown> = {
@@ -1879,11 +1885,15 @@ export const manualDepositCreate = action({
   handler: async (ctx, args) => {
     const user = await ctx.runQuery(I.wallet.wallet, { userId: args.userId });
     if (!user) return { ok: false, error: "Akun tidak ditemukan." };
+    const diminta = Math.floor(Number(args.amount) || 0);
+    if (diminta < DEPOSIT_MIN) {
+      return { ok: false, error: "Minimal deposit Rp 10.000." };
+    }
+    if (diminta > 100_000_000) return { ok: false, error: "Nominal terlalu besar." };
     const { methods } = await readPayConfig(ctx);
     const method = methods.find((m) => m.id === args.methodId && m.enabled);
     if (!method) return { ok: false, error: "Metode pembayaran tidak aktif. Pilih metode lain atau hubungi CS." };
-    const amount = Math.max(5000, Math.floor(args.amount));
-    if (amount > 100_000_000) return { ok: false, error: "Nominal terlalu besar." };
+    const amount = diminta;
     const referenceId = makeReferenceId("MNL");
     const typeLabel = PAY_TYPE_LABEL[method.type] || method.type;
     const methodDetail = [method.accountNo, method.accountName ? `a.n. ${method.accountName}` : ""]
