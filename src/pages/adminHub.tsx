@@ -315,7 +315,7 @@ function SupportAdminTab({
               <input
                 value={cfg.waNumber}
                 onChange={(e) => setCfg({ ...cfg, waNumber: e.target.value })}
-                placeholder="mis. 12897540214"
+                placeholder="mis. 62812xxxxxxx"
                 className={inputCls}
               />
               <p className="text-[10px] text-zinc-500 mt-1">
