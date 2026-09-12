@@ -1369,8 +1369,13 @@ export default function NokosShopPage() {
       )}
       {session && (
         <motion.button
-          onClick={() => {
-            const hasContact = !!supportConfig?.contactEnabled && !!supportConfig?.waUrl;
+          onClick={async () => {
+            // Ambil pengaturan terbaru setiap kali tombol ditekan supaya nomor
+            // WhatsApp yang baru diubah Owner langsung dipakai (tanpa reload).
+            const fresh = await apiSupportPublicConfig().catch(() => null);
+            const cfg = fresh?.ok ? fresh : supportConfig;
+            if (fresh?.ok) setSupportConfig(fresh);
+            const hasContact = !!cfg?.contactEnabled && !!cfg?.waUrl;
             if (hasContact) setSupportMenuOpen(true);
             else setSupportOpen(true);
           }}
