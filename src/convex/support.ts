@@ -8,11 +8,11 @@
  *      a. Chat di website — pesan disimpan & dijawab OTOMATIS dengan balasan
  *         sederhana (cocok kata kunci, TANPA AI). Kalau customer minta admin
  *         atau tulisannya keluhan, percakapan dialihkan ke admin/CS.
- *      b. WhatsApp / Telegram — customer diarahkan ke nomor/akun milik Owner.
+ *      b. WhatsApp — customer diarahkan ke nomor WhatsApp milik Owner.
  * 3. Owner/CS membalas dari Panel Admin → tab "Bantuan CS".
  *
  * Pengaturan disimpan di nokosSettings (bisa juga dibaca action lain):
- *   supportConfig: { autoReply, contactEnabled, waNumber, telegram }
+ *   supportConfig: { autoReply, contactEnabled, waNumber }
  */
 
 import { v } from "convex/values";
@@ -31,12 +31,10 @@ const DEFAULT_WA = "12897540214";
 type SupportConfig = {
   /** Balasan otomatis sederhana di chat website. */
   autoReply: boolean;
-  /** Tampilkan pilihan WhatsApp/Telegram untuk customer. */
+  /** Tampilkan pilihan WhatsApp untuk customer. */
   contactEnabled: boolean;
   /** Nomor WhatsApp (boleh pakai +, spasi, atau tanda hubung). */
   waNumber: string;
-  /** Telegram: @username, username, atau link t.me/... */
-  telegram: string;
 };
 
 function normalizeConfig(raw: any): SupportConfig {
@@ -44,7 +42,6 @@ function normalizeConfig(raw: any): SupportConfig {
     autoReply: raw?.autoReply !== false,
     contactEnabled: raw?.contactEnabled !== false,
     waNumber: typeof raw?.waNumber === "string" ? raw.waNumber : DEFAULT_WA,
-    telegram: typeof raw?.telegram === "string" ? raw.telegram : "",
   };
 }
 
@@ -52,16 +49,6 @@ function waLink(value: string): { url: string | null; number: string } {
   const digits = (value || "").replace(/[^0-9]/g, "");
   if (!digits) return { url: null, number: "" };
   return { url: `https://wa.me/${digits}`, number: `+${digits}` };
-}
-
-function tgLink(value: string): { url: string | null; name: string } {
-  const raw = (value || "").trim();
-  if (!raw) return { url: null, name: "" };
-  if (/^https?:\/\//i.test(raw)) {
-    return { url: raw, name: raw.replace(/^https?:\/\/(t\.me|telegram\.me)\//i, "@") };
-  }
-  const handle = raw.replace(/^@/, "").replace(/^t\.me\//i, "");
-  return { url: `https://t.me/${handle}`, name: `@${handle}` };
 }
 
 async function readConfig(ctx: any): Promise<SupportConfig> {
@@ -128,7 +115,7 @@ const HUMAN_MESSAGE =
   "Baik, saya sambungkan ke admin/CS kami ya 🙏\nTulis detailnya di chat ini (sertakan nomor order kalau ada), admin akan balas di halaman ini juga.";
 
 const WAITING_MESSAGE =
-  "Pesanmu sudah masuk ke admin/CS kami 🙏\nBalasannya muncul di halaman ini juga. Sambil menunggu, kamu bisa lanjut lewat WhatsApp/Telegram di menu Bantuan.";
+  "Pesanmu sudah masuk ke admin/CS kami 🙏\nBalasannya muncul di halaman ini juga. Sambil menunggu, kamu bisa lanjut lewat WhatsApp di menu Bantuan.";
 
 /** Kata kunci yang membuat percakapan langsung dialihkan ke admin manusia. */
 const ESCALATE_WORDS = [
@@ -179,16 +166,12 @@ export const publicConfig = action({
   handler: async (ctx) => {
     const cfg = await readConfig(ctx);
     const wa = waLink(cfg.waNumber);
-    const tg = tgLink(cfg.telegram);
     return {
       ok: true,
       autoReply: cfg.autoReply,
       contactEnabled: cfg.contactEnabled,
       // Kontak ditutup -> jangan kirim tautannya ke browser sama sekali.
       waUrl: cfg.contactEnabled ? wa.url : null,
-      waNumber: cfg.contactEnabled ? wa.number : "",
-      tgUrl: cfg.contactEnabled ? tg.url : null,
-      tgName: cfg.contactEnabled ? tg.name : "",
     };
   },
 });
@@ -352,14 +335,13 @@ export const staffGetConfig = action({
   },
 });
 
-/** Simpan pengaturan bantuan: balasan otomatis & nomor WA/Telegram manual. */
+/** Simpan pengaturan bantuan: balasan otomatis & nomor WhatsApp manual. */
 export const staffSetConfig = action({
   args: {
     actorId: v.id("appUsers"),
     autoReply: v.boolean(),
     contactEnabled: v.boolean(),
     waNumber: v.string(),
-    telegram: v.string(),
   },
   handler: async (ctx, args) => {
     const actor = await requireStaff(ctx, args.actorId);
@@ -368,7 +350,6 @@ export const staffSetConfig = action({
       autoReply: !!args.autoReply,
       contactEnabled: !!args.contactEnabled,
       waNumber: (args.waNumber || "").trim().slice(0, 40),
-      telegram: (args.telegram || "").trim().slice(0, 120),
     };
     await ctx.runMutation(I.wallet.setSettings, { key: SETTINGS_KEY, value: cfg });
     return { ok: true, config: cfg };

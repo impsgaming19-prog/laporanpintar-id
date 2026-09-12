@@ -1370,8 +1370,7 @@ export default function NokosShopPage() {
       {session && (
         <motion.button
           onClick={() => {
-            const hasContact =
-              !!supportConfig?.contactEnabled && !!(supportConfig?.waUrl || supportConfig?.tgUrl);
+            const hasContact = !!supportConfig?.contactEnabled && !!supportConfig?.waUrl;
             if (hasContact) setSupportMenuOpen(true);
             else setSupportOpen(true);
           }}

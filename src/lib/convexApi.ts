@@ -831,15 +831,12 @@ export async function apiSupportSetMode(
   return callAction("support:staffSetMode", { actorId, threadId, mode });
 }
 
-/** Pengaturan bantuan yang dilihat customer (chat otomatis + WhatsApp/Telegram). */
+/** Pengaturan bantuan yang dilihat customer (chat otomatis + WhatsApp). */
 export type SupportPublicConfig = {
   ok: boolean;
   autoReply?: boolean;
   contactEnabled?: boolean;
   waUrl?: string | null;
-  waNumber?: string;
-  tgUrl?: string | null;
-  tgName?: string;
   error?: string;
 };
 
@@ -848,7 +845,6 @@ export type SupportConfig = {
   autoReply: boolean;
   contactEnabled: boolean;
   waNumber: string;
-  telegram: string;
 };
 
 /** Pengaturan bantuan untuk halaman customer (publik). */
@@ -863,7 +859,7 @@ export async function apiSupportAdminGetConfig(
   return callAction("support:staffGetConfig", { actorId });
 }
 
-/** Simpan pengaturan bantuan: balasan otomatis & kontak WA/Telegram. */
+/** Simpan pengaturan bantuan: balasan otomatis & kontak WhatsApp. */
 export async function apiSupportAdminSetConfig(
   actorId: string,
   cfg: SupportConfig

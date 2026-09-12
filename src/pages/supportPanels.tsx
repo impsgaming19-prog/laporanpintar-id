@@ -1,16 +1,17 @@
 /**
  * Panel "Bantuan" untuk halaman customer.
  *
- *  - SupportMenuSheet : pilihan cara menghubungi CS
- *                       (chat di website · WhatsApp · Telegram)
+ *  - SupportMenuSheet : pilihan cara menghubungi CS (chat di website · WhatsApp)
  *  - SupportChatSheet : chat di website (balasan otomatis sederhana, bukan AI)
  *
- * Pilihan WhatsApp/Telegram dan balasan otomatis diatur Owner dari
+ * Tombol WhatsApp dan balasan otomatis diatur Owner dari
  * Panel Admin → tab "Bantuan CS" (disimpan di pengaturan toko).
+ * Nomor WhatsApp tidak pernah ditampilkan ke customer.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Headset, Loader2, MessageCircle, Send, XCircle } from "lucide-react";
+
 import {
   apiSupportMyThread,
   apiSupportSend,
@@ -22,7 +23,7 @@ const ACCENT = "#00e676";
 const DARK = "#0b0b0f";
 
 /* =====================================================================
- * PILIHAN BANTUAN — chat website / WhatsApp / Telegram
+ * PILIHAN BANTUAN — chat website / WhatsApp
  * ===================================================================== */
 export function SupportMenuSheet({
   open,
@@ -37,7 +38,6 @@ export function SupportMenuSheet({
 }) {
   if (!open) return null;
   const wa = config?.contactEnabled && config.waUrl ? config.waUrl : null;
-  const tg = config?.contactEnabled && config.tgUrl ? config.tgUrl : null;
   const auto = config?.autoReply !== false;
 
   return (
@@ -103,34 +103,12 @@ export function SupportMenuSheet({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-bold text-white">WhatsApp</span>
-                <span className="block text-[11px] text-zinc-400">
-                  {config?.waNumber || "Chat langsung dengan admin"}
-                </span>
+                <span className="block text-[11px] text-zinc-400">Chat langsung dengan admin kami</span>
               </span>
               <ArrowRight className="w-4 h-4 text-zinc-500 flex-shrink-0" />
             </a>
           )}
 
-          {tg && (
-            <a
-              href={tg}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full text-left rounded-2xl border border-white/12 bg-white/5 hover:bg-white/10 px-4 py-3.5 flex items-center gap-3 transition-colors"
-            >
-              <span
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: "rgba(56,148,220,0.15)", color: "#3894dc" }}
-              >
-                <Send className="w-5 h-5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-bold text-white">Telegram</span>
-                <span className="block text-[11px] text-zinc-400">{config?.tgName || "Chat lewat Telegram"}</span>
-              </span>
-              <ArrowRight className="w-4 h-4 text-zinc-500 flex-shrink-0" />
-            </a>
-          )}
         </div>
 
         <p className="px-5 pb-5 text-[11px] text-zinc-500 leading-relaxed">

@@ -264,7 +264,7 @@ function SupportAdminTab({
 
   return (
     <div className="grid gap-3 md:grid-cols-[280px_1fr]">
-      {/* pengaturan bantuan: balasan otomatis & kontak WA/Telegram manual */}
+      {/* pengaturan bantuan: balasan otomatis & nomor WhatsApp manual */}
       <div className="md:col-span-2 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-bold text-white flex items-center gap-2">
@@ -302,7 +302,7 @@ function SupportAdminTab({
                   className="mt-0.5 w-4 h-4 accent-emerald-500"
                 />
                 <span>
-                  <span className="block text-[13px] font-bold text-white">Tombol WhatsApp / Telegram</span>
+                  <span className="block text-[13px] font-bold text-white">Tombol WhatsApp</span>
                   <span className="block text-[11px] text-zinc-400">
                     Kalau dimatikan, customer hanya bisa lapor lewat chat di website.
                   </span>
@@ -310,27 +310,18 @@ function SupportAdminTab({
               </label>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <p className="text-[11px] text-zinc-400 mb-1">Nomor WhatsApp (isi manual)</p>
-                <input
-                  value={cfg.waNumber}
-                  onChange={(e) => setCfg({ ...cfg, waNumber: e.target.value })}
-                  placeholder="mis. 12897540214"
-                  className={inputCls}
-                />
-                <p className="text-[10px] text-zinc-500 mt-1">Boleh pakai +, spasi, atau tanda hubung.</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-zinc-400 mb-1">Telegram (isi manual, opsional)</p>
-                <input
-                  value={cfg.telegram}
-                  onChange={(e) => setCfg({ ...cfg, telegram: e.target.value })}
-                  placeholder="mis. @kakonokos atau https://t.me/kakonokos"
-                  className={inputCls}
-                />
-                <p className="text-[10px] text-zinc-500 mt-1">Kosongkan kalau tidak dipakai.</p>
-              </div>
+            <div className="max-w-md">
+              <p className="text-[11px] text-zinc-400 mb-1">Nomor WhatsApp (isi manual)</p>
+              <input
+                value={cfg.waNumber}
+                onChange={(e) => setCfg({ ...cfg, waNumber: e.target.value })}
+                placeholder="mis. 12897540214"
+                className={inputCls}
+              />
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Boleh pakai +, spasi, atau tanda hubung. Nomor ini <b>tidak ditampilkan</b> ke customer — mereka hanya
+                melihat tombol WhatsApp.
+              </p>
             </div>
 
             <button
