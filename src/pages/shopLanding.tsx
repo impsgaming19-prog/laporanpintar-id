@@ -388,8 +388,11 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
               transition={{ delay: 0.12 }}
               className="text-zinc-400 text-[15px] mt-4 leading-relaxed max-w-lg"
             >
-              KAKO NOKOS menjual nomor virtual untuk verifikasi WhatsApp, Telegram, Facebook, Google, dan ratusan
-              layanan lain — lintas negara. Data negara, layanan, stok, dan harga <b className="text-zinc-200">langsung dari server resmi</b>, bukan daftar tempelan.
+              KAKO NOKOS adalah toko jual-beli nomor virtual <b className="text-zinc-200">terpercaya &amp; transparan</b> untuk
+              verifikasi hampir <b className="text-zinc-200">semua aplikasi</b> — WhatsApp, Telegram, Google, TikTok,
+              Instagram, Facebook, dan ratusan layanan lain dari <b className="text-zinc-200">190+ negara</b>. Harga
+              murah dan jelas: yang tampil itulah yang kamu bayar, <b className="text-zinc-200">tanpa biaya
+              tersembunyi</b>, dan data stok &amp; harga diambil langsung dari server resmi.
             </motion.p>
             <motion.div
               initial={{ opacity: 0, y: 14 }}
