@@ -30,7 +30,6 @@ import {
   Smartphone,
   MessageSquare,
   Send,
-  Bot,
 } from "lucide-react";
 import {
   apiAdminAdjustBalance,
@@ -68,9 +67,11 @@ import {
   apiSupportStaffMessages,
   apiSupportStaffReply,
   apiSupportSetMode,
-  apiSupportAiStatus,
+  apiSupportAdminGetConfig,
+  apiSupportAdminSetConfig,
   type ShopUser,
   type SupportMessage,
+  type SupportConfig,
   type SupportThread,
 } from "@/lib/convexApi";
 import { OwnerInsights } from "./ownerInsights";
@@ -177,7 +178,9 @@ function SupportAdminTab({
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [ai, setAi] = useState<{ enabled: boolean; model: string } | null>(null);
+  const [cfg, setCfg] = useState<SupportConfig | null>(null);
+  const [cfgBusy, setCfgBusy] = useState(false);
+  const [cfgMsg, setCfgMsg] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const loadThreads = async () => {
@@ -191,9 +194,9 @@ function SupportAdminTab({
   };
 
   useEffect(() => {
-    apiSupportAiStatus(actorId)
+    apiSupportAdminGetConfig(actorId)
       .then((r) => {
-        if (r.ok) setAi({ enabled: !!r.aiEnabled, model: r.model || "gpt-4o-mini" });
+        if (r.ok && r.config) setCfg(r.config);
       })
       .catch(() => {});
     loadThreads();
@@ -236,6 +239,21 @@ function SupportAdminTab({
     setBusy(false);
   };
 
+  const saveConfig = async () => {
+    if (!cfg || cfgBusy) return;
+    setCfgBusy(true);
+    setCfgMsg(null);
+    const res = await apiSupportAdminSetConfig(actorId, cfg).catch(() => null);
+    if (res?.ok && res.config) {
+      setCfg(res.config);
+      setCfgMsg("Pengaturan bantuan disimpan.");
+    } else {
+      setCfgMsg(res?.error || "Gagal menyimpan pengaturan.");
+    }
+    setCfgBusy(false);
+    window.setTimeout(() => setCfgMsg(null), 6000);
+  };
+
   const changeMode = async (mode: string) => {
     if (!activeId) return;
     await apiSupportSetMode(actorId, activeId, mode).catch(() => null);
@@ -246,6 +264,87 @@ function SupportAdminTab({
 
   return (
     <div className="grid gap-3 md:grid-cols-[280px_1fr]">
+      {/* pengaturan bantuan: balasan otomatis & kontak WA/Telegram manual */}
+      <div className="md:col-span-2 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-bold text-white flex items-center gap-2">
+            <Headset className="w-4 h-4" style={{ color: ACCENT }} /> Pengaturan Bantuan
+          </p>
+          {cfgMsg && <span className="text-[11px] text-emerald-300">{cfgMsg}</span>}
+        </div>
+
+        {!cfg ? (
+          <p className="text-[12px] text-zinc-500">Memuat pengaturan…</p>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cfg.autoReply}
+                  onChange={(e) => setCfg({ ...cfg, autoReply: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 accent-emerald-500"
+                />
+                <span>
+                  <span className="block text-[13px] font-bold text-white">Balasan otomatis (CS)</span>
+                  <span className="block text-[11px] text-zinc-400">
+                    Pesan customer dijawab otomatis dengan jawaban siap pakai. Kalau dimatikan, semua pesan langsung
+                    masuk ke admin/CS.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cfg.contactEnabled}
+                  onChange={(e) => setCfg({ ...cfg, contactEnabled: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 accent-emerald-500"
+                />
+                <span>
+                  <span className="block text-[13px] font-bold text-white">Tombol WhatsApp / Telegram</span>
+                  <span className="block text-[11px] text-zinc-400">
+                    Kalau dimatikan, customer hanya bisa lapor lewat chat di website.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-[11px] text-zinc-400 mb-1">Nomor WhatsApp (isi manual)</p>
+                <input
+                  value={cfg.waNumber}
+                  onChange={(e) => setCfg({ ...cfg, waNumber: e.target.value })}
+                  placeholder="mis. 12897540214"
+                  className={inputCls}
+                />
+                <p className="text-[10px] text-zinc-500 mt-1">Boleh pakai +, spasi, atau tanda hubung.</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-zinc-400 mb-1">Telegram (isi manual, opsional)</p>
+                <input
+                  value={cfg.telegram}
+                  onChange={(e) => setCfg({ ...cfg, telegram: e.target.value })}
+                  placeholder="mis. @kakonokos atau https://t.me/kakonokos"
+                  className={inputCls}
+                />
+                <p className="text-[10px] text-zinc-500 mt-1">Kosongkan kalau tidak dipakai.</p>
+              </div>
+            </div>
+
+            <button
+              onClick={saveConfig}
+              disabled={cfgBusy}
+              className="px-4 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-40"
+              style={{ backgroundColor: ACCENT, color: DARK }}
+            >
+              {cfgBusy ? "Menyimpan…" : "Simpan pengaturan bantuan"}
+            </button>
+          </>
+        )}
+      </div>
+
       {/* daftar percakapan */}
       <div className="rounded-2xl border border-white/10 bg-zinc-900/50 overflow-hidden">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
@@ -283,7 +382,7 @@ function SupportAdminTab({
               <p className="text-[11px] text-zinc-500 truncate">{t.userEmail}</p>
               <p className="text-[11px] text-zinc-400 truncate mt-0.5">{t.lastMessage || "—"}</p>
               <p className="text-[10px] mt-1" style={{ color: t.mode === "human" ? "#7dd3fc" : ACCENT }}>
-                {t.mode === "human" ? "Ditangani admin/CS" : t.mode === "closed" ? "Ditutup" : "Dijawab asisten AI"}
+                {t.mode === "human" ? "Ditangani admin/CS" : t.mode === "closed" ? "Ditutup" : "Dijawab CS otomatis"}
               </p>
             </button>
           ))}
@@ -309,7 +408,7 @@ function SupportAdminTab({
                   }`}
                   style={active.mode === "ai" ? { background: ACCENT } : {}}
                 >
-                  Asisten AI
+                  CS Otomatis
                 </button>
                 <button
                   onClick={() => changeMode("human")}
@@ -346,7 +445,7 @@ function SupportAdminTab({
                       }`}
                     >
                       <p className="text-[10px] font-bold uppercase tracking-wide mb-1 opacity-80">
-                        {staff ? `Admin/CS${m.authorName ? ` · ${m.authorName}` : ""}` : aiMsg ? "Asisten AI" : active.userName || "Customer"}
+                        {staff ? `Admin/CS${m.authorName ? ` · ${m.authorName}` : ""}` : aiMsg ? "CS Otomatis" : active.userName || "Customer"}
                       </p>
                       {m.body}
                     </div>
@@ -384,12 +483,12 @@ function SupportAdminTab({
             </div>
 
             <p className="px-4 pb-3 text-[11px] text-zinc-500 flex items-center gap-1.5">
-              <Bot className="w-3.5 h-3.5" />
-              {ai
-                ? ai.enabled
-                  ? `Asisten AI aktif (${ai.model}) — otomatis berhenti menjawab setelah admin balas.`
-                  : "Asisten AI belum aktif — isi OPENAI_API_KEY di Keys/Environment supaya jawaban otomatis jalan."
-                : "Memeriksa status asisten AI…"}
+              <Headset className="w-3.5 h-3.5" />
+              {cfg
+                ? cfg.autoReply
+                  ? "Balasan otomatis aktif — otomatis berhenti setelah admin balas."
+                  : "Balasan otomatis dimatikan — semua pesan masuk ke admin/CS."
+                : "Memeriksa pengaturan bantuan…"}
             </p>
           </>
         )}

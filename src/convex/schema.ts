@@ -74,7 +74,7 @@ export default defineSchema({
     .index("by_user", ["userId", "createdAt"]),
 
   // Layanan Bantuan (CS) — satu percakapan per customer.
-  // mode: "ai" (dijawab asisten AI) | "human" (menunggu/dijawab admin/CS) | "closed"
+  // mode: "ai" (dijawab balasan otomatis CS) | "human" (menunggu/dijawab admin/CS) | "closed"
   supportThreads: defineTable({
     userId: v.id("appUsers"),
     userEmail: v.string(),
@@ -90,7 +90,7 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_lastMessageAt", ["lastMessageAt"]),
 
-  // Isi percakapan bantuan (customer, asisten AI, atau admin/CS).
+  // Isi percakapan bantuan (customer, balasan otomatis CS, atau admin/CS).
   supportMessages: defineTable({
     threadId: v.id("supportThreads"),
     role: v.string(), // "user" | "assistant" | "staff"

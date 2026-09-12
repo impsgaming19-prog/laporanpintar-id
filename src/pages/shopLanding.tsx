@@ -691,7 +691,7 @@ export function LandingPage({ onAuthed }: { onAuthed: (user: ShopUser) => void }
             ))}
           </div>
           <p className="text-center text-[12px] text-zinc-600 mt-6">
-            Butuh bantuan? Hubungi Customer Service kami setelah login — bantuan cepat & ramah.
+            Butuh bantuan? Setelah login, tekan tombol bantuan di kanan bawah — bisa chat langsung atau lewat WhatsApp.
           </p>
         </section>
 

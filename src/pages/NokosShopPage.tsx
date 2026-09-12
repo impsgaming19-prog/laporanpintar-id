@@ -35,9 +35,6 @@ import {
   Gift,
   Ticket,
   Info,
-  MessageCircle,
-  Send,
-  Bot,
   Headset,
 } from "lucide-react";
 
@@ -83,10 +80,9 @@ import {
   type ProviderId,
   type Service,
   type ShopOrder,
-  apiSupportMyThread,
-  apiSupportSend,
+  apiSupportPublicConfig,
   type ShopUser,
-  type SupportMessage,
+  type SupportPublicConfig,
 } from "@/lib/convexApi";
 import {
   AdminDepositTab,
@@ -94,6 +90,7 @@ import {
 } from "@/pages/adminBits";
 import { LandingPage as ShopLanding } from "@/pages/shopLanding";
 import { AdminHub } from "@/pages/adminHub";
+import { SupportChatSheet, SupportMenuSheet } from "@/pages/supportPanels";
 
 /* ---------- brand ---------- */
 const RED = "#e10600";
@@ -551,8 +548,25 @@ export default function NokosShopPage() {
   // Sheet isi saldo baru (Paymentku + Isi Manual). depositOpen lama tidak dipakai lagi.
   const [depositSheetOpen, setDepositSheetOpen] = useState(false);
   const [depositSheetAmount, setDepositSheetAmount] = useState(25000);
-  /* ---------- panel Hubungi CS ---------- */
+  /* ---------- panel Bantuan (tombol ngambang) ---------- */
   const [supportOpen, setSupportOpen] = useState(false);
+  const [supportMenuOpen, setSupportMenuOpen] = useState(false);
+  const [supportConfig, setSupportConfig] = useState<SupportPublicConfig | null>(null);
+
+  /* ---------- muat pengaturan bantuan (chat otomatis + WA/Telegram) ---------- */
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    apiSupportPublicConfig()
+      .then((r) => {
+        if (!cancelled && r.ok) setSupportConfig(r);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
   const [depositAmount, setDepositAmount] = useState(25000);
   const [depositBusy, setDepositBusy] = useState(false);
   const [depositStatus, setDepositStatus] = useState<string | null>(null);
@@ -1334,8 +1348,47 @@ export default function NokosShopPage() {
           }}
         />
       )}
+      {supportMenuOpen && session && (
+        <SupportMenuSheet
+          open={supportMenuOpen}
+          config={supportConfig}
+          onClose={() => setSupportMenuOpen(false)}
+          onChat={() => {
+            setSupportMenuOpen(false);
+            setSupportOpen(true);
+          }}
+        />
+      )}
       {supportOpen && session && (
-        <SupportSheet open={supportOpen} userId={session.user.id} onClose={() => setSupportOpen(false)} />
+        <SupportChatSheet
+          open={supportOpen}
+          userId={session.user.id}
+          config={supportConfig}
+          onClose={() => setSupportOpen(false)}
+        />
+      )}
+      {session && (
+        <motion.button
+          onClick={() => {
+            const hasContact =
+              !!supportConfig?.contactEnabled && !!(supportConfig?.waUrl || supportConfig?.tgUrl);
+            if (hasContact) setSupportMenuOpen(true);
+            else setSupportOpen(true);
+          }}
+          title="Bantuan / Hubungi CS"
+          aria-label="Bantuan"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1, y: [0, -4, 0] }}
+          transition={{ opacity: { duration: 0.25 }, scale: { duration: 0.25 }, y: { duration: 3.2, repeat: Infinity, ease: "easeInOut" } }}
+          whileTap={{ scale: 0.92 }}
+          className="fixed bottom-6 right-5 z-[80] w-14 h-14 rounded-full flex items-center justify-center border border-white/25"
+          style={{
+            background: `linear-gradient(140deg, ${ACCENT} 0%, #00b85a 55%, #00773c 100%)`,
+            boxShadow: "0 14px 30px -10px rgba(0,230,118,0.8), inset 0 1px 0 rgba(255,255,255,0.45), inset 0 -5px 10px rgba(0,0,0,0.25)",
+          }}
+        >
+          <Headset className="w-6 h-6" style={{ color: DARK }} />
+        </motion.button>
       )}
       {adminHubOpen && session && isAdmin && (
         <AdminHub
@@ -1389,13 +1442,6 @@ export default function NokosShopPage() {
                 <Settings className="w-4 h-4" /> <span className="hidden sm:inline">Panel Admin</span>
               </button>
             )}
-            <button
-              onClick={() => setSupportOpen(true)}
-              title="Hubungi CS"
-              className="px-3 py-2 rounded-xl text-sm font-semibold border border-white/15 text-zinc-200 hover:bg-white/5 flex items-center gap-2"
-            >
-              <MessageCircle className="w-4 h-4" /> <span className="hidden sm:inline">Bantuan</span>
-            </button>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5">
               <Wallet className="w-4 h-4" style={{ color: ACCENT }} />
               <span className="text-sm font-bold">Rp {formatRupiah(walletBalance ?? 0)}</span>
@@ -2401,202 +2447,6 @@ export default function NokosShopPage() {
 /* =====================================================================
  * SATU BARIS RIWAYAT (dengan tombol periksa OTP & batalkan)
  * ===================================================================== */
-/* =====================================================================
- * HUBUNGI CS — chat dengan asisten otomatis, bisa dialihkan ke admin/CS
- * ===================================================================== */
-function SupportSheet({
-  open,
-  userId,
-  onClose,
-}: {
-  open: boolean;
-  userId: string;
-  onClose: () => void;
-}) {
-  const [messages, setMessages] = useState<SupportMessage[]>([]);
-  const [mode, setMode] = useState<string>("ai");
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-
-  const load = async () => {
-    const res = await apiSupportMyThread(userId).catch(() => null);
-    if (!res) return;
-    if (!res.ok) {
-      if (res.error) setError(res.error);
-      return;
-    }
-    setMessages(res.messages || []);
-    setMode(res.mode || "ai");
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    setError(null);
-    setLoading(true);
-    load().finally(() => setLoading(false));
-    const timer = setInterval(() => {
-      load().catch(() => {});
-    }, 8000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, userId]);
-
-  useEffect(() => {
-    const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, open]);
-
-  const send = async (raw?: string) => {
-    const body = (raw ?? text).trim();
-    if (!body || busy) return;
-    setBusy(true);
-    setError(null);
-    setText("");
-    setMessages((prev) => [
-      ...prev,
-      { id: `local-${Date.now()}`, role: "user" as const, body, createdAt: Date.now() },
-    ]);
-    const res = await apiSupportSend(userId, body).catch(() => null);
-    if (res && !res.ok && res.error) setError(res.error);
-    await load();
-    setBusy(false);
-  };
-
-  if (!open) return null;
-
-  const quick = [
-    "Cara beli nomor gimana?",
-    "OTP belum masuk",
-    "Aturan refund / batal",
-    "Mau bicara dengan admin",
-  ];
-  const staffMode = mode === "human";
-
-  return (
-    <div
-      className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-lg bg-zinc-950 border border-white/10 rounded-t-3xl sm:rounded-3xl flex flex-col max-h-[92vh] overflow-hidden"
-      >
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center border border-white/20 flex-shrink-0"
-            style={{ background: `linear-gradient(140deg, ${RED} 0%, #7a0a05 100%)` }}
-          >
-            <Headset className="w-5 h-5 text-white" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-black text-white leading-tight">Hubungi CS</p>
-            <p className="text-[11px] text-zinc-400 truncate">
-              {staffMode
-                ? "Terhubung ke admin/CS — balasan muncul di halaman ini"
-                : "Dijawab otomatis oleh asisten · tulis “admin” untuk minta admin"}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 rounded-xl flex items-center justify-center border border-white/10 text-zinc-400 hover:text-white"
-          >
-            <XCircle className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-          {loading && messages.length === 0 && (
-            <div className="flex items-center justify-center gap-2 text-zinc-500 text-sm py-8">
-              <Loader2 className="w-4 h-4 animate-spin" /> Memuat percakapan…
-            </div>
-          )}
-
-          {!loading && messages.length === 0 && (
-            <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4">
-              <p className="text-sm font-bold text-white flex items-center gap-2">
-                <Bot className="w-4 h-4" style={{ color: ACCENT }} /> Ada yang bisa dibantu?
-              </p>
-              <p className="text-[12px] text-zinc-400 mt-1">
-                Tulis pertanyaan atau laporanmu di bawah. Dijawab otomatis oleh asisten; kalau perlu admin, tulis{" "}
-                <b className="text-white">admin</b>.
-              </p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {quick.map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => send(q)}
-                    className="text-[11px] px-3 py-1.5 rounded-full border border-white/15 text-zinc-200 hover:bg-white/10"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.map((m) => {
-            const mine = m.role === "user";
-            const staff = m.role === "staff";
-            return (
-              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap border ${
-                    mine
-                      ? "bg-red-600/20 border-red-500/30 text-white"
-                      : staff
-                        ? "bg-sky-500/10 border-sky-500/30 text-zinc-100"
-                        : "bg-zinc-900/80 border-white/10 text-zinc-100"
-                  }`}
-                >
-                  {!mine && (
-                    <p
-                      className="text-[10px] font-bold uppercase tracking-wide mb-1 flex items-center gap-1"
-                      style={{ color: staff ? "#7dd3fc" : ACCENT }}
-                    >
-                      {staff ? <Headset className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
-                      {staff ? m.authorName || "Admin/CS" : "Asisten KAKO NOKOS"}
-                    </p>
-                  )}
-                  {m.body}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {error && <p className="px-4 pb-2 text-[12px] text-red-300">{error}</p>}
-
-        <div className="border-t border-white/10 p-3 flex items-end gap-2 bg-[#0b0b0f]">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            rows={1}
-            placeholder={staffMode ? "Tulis balasan untuk admin…" : "Tulis pesan atau laporanmu…"}
-            className="flex-1 resize-none bg-white/5 border border-white/10 rounded-2xl px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-white/25 max-h-28"
-          />
-          <button
-            onClick={() => send()}
-            disabled={busy || !text.trim()}
-            className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 disabled:opacity-40"
-            style={{ backgroundColor: ACCENT, color: DARK }}
-          >
-            {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function OrderRow({
   item,
   statusCls,

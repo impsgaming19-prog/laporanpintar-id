@@ -759,7 +759,7 @@ export async function apiShopSetServerEnabled(
 }
 
 /* =====================================================================
- * LAYANAN BANTUAN (CS) — customer <-> asisten AI <-> admin/CS
+ * LAYANAN BANTUAN (CS) — customer <-> CS otomatis / WhatsApp <-> admin/CS
  * ===================================================================== */
 
 export type SupportMessage = {
@@ -775,7 +775,7 @@ export type SupportThread = {
   userId: string;
   userEmail: string;
   userName: string;
-  /** "ai" (dijawab asisten) | "human" (ditangani admin/CS) | "closed" */
+  /** "ai" (dijawab CS otomatis) | "human" (ditangani admin/CS) | "closed" */
   mode: string;
   lastMessage: string;
   lastMessageAt: number;
@@ -831,11 +831,44 @@ export async function apiSupportSetMode(
   return callAction("support:staffSetMode", { actorId, threadId, mode });
 }
 
-/** Status asisten AI (aktif/tidak) untuk Panel Admin. */
-export async function apiSupportAiStatus(
+/** Pengaturan bantuan yang dilihat customer (chat otomatis + WhatsApp/Telegram). */
+export type SupportPublicConfig = {
+  ok: boolean;
+  autoReply?: boolean;
+  contactEnabled?: boolean;
+  waUrl?: string | null;
+  waNumber?: string;
+  tgUrl?: string | null;
+  tgName?: string;
+  error?: string;
+};
+
+/** Pengaturan bantuan versi Owner (nilai mentah untuk diisi di Panel Admin). */
+export type SupportConfig = {
+  autoReply: boolean;
+  contactEnabled: boolean;
+  waNumber: string;
+  telegram: string;
+};
+
+/** Pengaturan bantuan untuk halaman customer (publik). */
+export async function apiSupportPublicConfig(): Promise<SupportPublicConfig> {
+  return callAction("support:publicConfig", {});
+}
+
+/** Baca pengaturan bantuan (Owner/CS) untuk Panel Admin. */
+export async function apiSupportAdminGetConfig(
   actorId: string
-): Promise<{ ok: boolean; aiEnabled?: boolean; model?: string; error?: string }> {
-  return callAction("support:staffAiStatus", { actorId });
+): Promise<{ ok: boolean; config?: SupportConfig; error?: string }> {
+  return callAction("support:staffGetConfig", { actorId });
+}
+
+/** Simpan pengaturan bantuan: balasan otomatis & kontak WA/Telegram. */
+export async function apiSupportAdminSetConfig(
+  actorId: string,
+  cfg: SupportConfig
+): Promise<{ ok: boolean; config?: SupportConfig; error?: string }> {
+  return callAction("support:staffSetConfig", { actorId, ...cfg });
 }
 
 export function formatRupiah(value: number): string {

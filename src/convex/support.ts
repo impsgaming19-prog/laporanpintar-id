@@ -1,23 +1,18 @@
-"use node";
-
 /**
- * Layanan Bantuan (CS) — "Hubungi CS" di website.
+ * Layanan Bantuan (CS) — tombol "Bantuan" di website.
  *
  * Alur:
- * 1. Customer menulis pesan/laporan di panel Hubungi CS.
- * 2. Pesan disimpan, lalu dijawab otomatis oleh asisten AI (OpenAI) berdasarkan
- *    pengetahuan toko di SYSTEM_PROMPT.
- * 3. Kalau customer minta admin, atau tulisannya berupa keluhan, atau AI tidak
- *    bisa dipakai (kunci belum diisi / error), percakapan otomatis dialihkan ke
- *    ADMIN (mode "human") dan berhenti dijawab AI.
- * 4. Owner/CS membalas dari Panel Admin → tab "Bantuan CS".
+ * 1. Customer menekan tombol bantuan (tombol ngambang kanan bawah).
+ * 2. Ada 2 pilihan yang bisa dinyalakan/dimatikan Owner di Panel Admin →
+ *    tab "Bantuan CS":
+ *      a. Chat di website — pesan disimpan & dijawab OTOMATIS dengan balasan
+ *         sederhana (cocok kata kunci, TANPA AI). Kalau customer minta admin
+ *         atau tulisannya keluhan, percakapan dialihkan ke admin/CS.
+ *      b. WhatsApp / Telegram — customer diarahkan ke nomor/akun milik Owner.
+ * 3. Owner/CS membalas dari Panel Admin → tab "Bantuan CS".
  *
- * Catatan: file ini memakai "use node" (untuk memanggil OpenAI), jadi Convex
- * HANYA mengizinkan action di sini. Fungsi database-nya ada di `supportDb.ts`.
- *
- * Kunci API dibaca dari environment backend (BUKAN dari browser):
- *   OPENAI_API_KEY  -> wajib untuk balasan AI
- *   OPENAI_MODEL    -> opsional, default "gpt-4o-mini"
+ * Pengaturan disimpan di nokosSettings (bisa juga dibaca action lain):
+ *   supportConfig: { autoReply, contactEnabled, waNumber, telegram }
  */
 
 import { v } from "convex/values";
@@ -28,32 +23,112 @@ import { internal } from "./_generated/api";
 // tipe melingkar. Objek referensi tetap valid saat runtime.
 const I = internal as any;
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-/** Timeout OpenAI harus lebih kecil dari timeout klien (25 detik). */
-const OPENAI_TIMEOUT_MS = 18_000;
 const MAX_BODY = 1000;
-/** Jumlah pesan terakhir yang dikirim sebagai konteks ke AI. */
-const HISTORY_LIMIT = 14;
+const SETTINGS_KEY = "supportConfig";
+/** Nomor WhatsApp bawaan (Owner bisa ganti kapan saja dari Panel Admin). */
+const DEFAULT_WA = "12897540214";
 
-/** Pengetahuan toko yang dipakai asisten AI. */
-const SYSTEM_PROMPT = `Kamu adalah CS (customer service) ramah untuk KAKO NOKOS, toko nomor virtual online di Indonesia.
-Tugasmu: menjawab pertanyaan customer dengan singkat, jelas, dan sopan (maksimal 4 kalimat), pakai bahasa Indonesia santai.
+type SupportConfig = {
+  /** Balasan otomatis sederhana di chat website. */
+  autoReply: boolean;
+  /** Tampilkan pilihan WhatsApp/Telegram untuk customer. */
+  contactEnabled: boolean;
+  /** Nomor WhatsApp (boleh pakai +, spasi, atau tanda hubung). */
+  waNumber: string;
+  /** Telegram: @username, username, atau link t.me/... */
+  telegram: string;
+};
 
-CARA PAKAI TOKO:
-1. Daftar akun pakai email + password, lalu login.
-2. Isi Saldo: pilih nominal, lalu bayar via QRIS otomatis (saldo masuk otomatis setelah dibayar) ATAU via isi manual (QR/transfer bank/e-wallet) yang dikonfirmasi admin/CS.
-3. Beli nomor: pilih server, lalu negara, lalu layanan (mis. WhatsApp, Telegram) lalu tekan Beli. Saldo otomatis terpotong.
-4. Nomor muncul otomatis setelah pembelian, dan kode OTP muncul otomatis di halaman saat sudah masuk.
-5. Ada 4 pilihan server (Server v1 sampai Server v4). Kalau stok di satu server habis, coba server lain.
+function normalizeConfig(raw: any): SupportConfig {
+  return {
+    autoReply: raw?.autoReply !== false,
+    contactEnabled: raw?.contactEnabled !== false,
+    waNumber: typeof raw?.waNumber === "string" ? raw.waNumber : DEFAULT_WA,
+    telegram: typeof raw?.telegram === "string" ? raw.telegram : "",
+  };
+}
 
-ATURAN PENTING:
-- Harga yang tampil adalah harga final (tidak ada biaya tambahan). Harga bisa berbeda antar server karena sumber stoknya berbeda.
-- Pembatalan/refund: bisa dilakukan minimal 2 menit setelah pembelian dari menu Riwayat. TIDAK bisa dibatalkan kalau kode OTP sudah masuk. Kalau pembelian gagal, saldo otomatis dikembalikan.
-- Kalau negara/layanan yang dicari tidak ada, saran: coba server lain atau layanan lain.
-- Jangan pernah menyebut nama perusahaan pemasok/server internal. Sebut saja "Server v1" sampai "Server v4".
-- JANGAN pernah meminta password, OTP, atau data sensitif customer. Jangan menjanjikan bonus/uang/saldo gratis.
-- Jangan mengarang harga, stok, atau kebijakan yang tidak ada di sini.
-- Kalau pertanyaan butuh pengecekan akun/transaksi (mis. saldo tidak masuk, OTP tidak masuk, dana hilang), jawab singkat lalu sarankan: "tulis 'admin' supaya saya sambungkan ke admin/CS kami".`;
+function waLink(value: string): { url: string | null; number: string } {
+  const digits = (value || "").replace(/[^0-9]/g, "");
+  if (!digits) return { url: null, number: "" };
+  return { url: `https://wa.me/${digits}`, number: `+${digits}` };
+}
+
+function tgLink(value: string): { url: string | null; name: string } {
+  const raw = (value || "").trim();
+  if (!raw) return { url: null, name: "" };
+  if (/^https?:\/\//i.test(raw)) {
+    return { url: raw, name: raw.replace(/^https?:\/\/(t\.me|telegram\.me)\//i, "@") };
+  }
+  const handle = raw.replace(/^@/, "").replace(/^t\.me\//i, "");
+  return { url: `https://t.me/${handle}`, name: `@${handle}` };
+}
+
+async function readConfig(ctx: any): Promise<SupportConfig> {
+  const map = await ctx.runQuery(I.wallet.getSettings, {});
+  return normalizeConfig(map?.[SETTINGS_KEY]);
+}
+
+/* =====================================================================
+ * Balasan otomatis sederhana (tanpa AI) — cocok kata kunci
+ * ===================================================================== */
+
+const AUTO_REPLIES: Array<{ keys: string[]; answer: string }> = [
+  {
+    keys: ["harga", "berapa", "biaya", "tarif", "mahal", "murah"],
+    answer:
+      "Harga yang tampil di halaman sudah harga final (tidak ada biaya tambahan). Harga berbeda antar server karena sumber stoknya berbeda — pilih yang paling murah sesuai kebutuhanmu ya 🙏",
+  },
+  {
+    keys: ["cara beli", "beli nomor", "cara pesan", "gimana beli", "bagaimana beli", "cara order", "cara pakai"],
+    answer:
+      "Cara beli nomornya: buka menu Beli Nomor → pilih server → pilih negara → pilih layanan (mis. WhatsApp) → tekan Beli. Saldo otomatis terpotong dan nomornya langsung muncul di halaman.",
+  },
+  {
+    keys: ["isi saldo", "deposit", "top up", "topup", "tambah saldo", "saldo masuk"],
+    answer:
+      "Isi saldo: tekan tombol Isi Saldo → pilih nominal → bayar via QRIS otomatis (saldo masuk sendiri setelah dibayar) atau lewat metode manual (QR/transfer bank/e-wallet) yang dikonfirmasi admin. Kalau sudah bayar tapi saldo belum masuk, tulis \"admin\" ya.",
+  },
+  {
+    keys: ["refund", "batal", "batalkan", "cancel", "pengembalian", "uang kembali"],
+    answer:
+      "Pembatalan/refund bisa dilakukan paling cepat 2 menit setelah pembelian, dari menu Riwayat. Kalau kode OTP sudah masuk, order TIDAK bisa dibatalkan/direfund. Kalau pembelian gagal, saldo otomatis dikembalikan.",
+  },
+  {
+    keys: ["otp", "kode", "sms", "kode belum", "belum masuk", "tidak masuk", "gak masuk"],
+    answer:
+      "Kode OTP muncul otomatis di halaman Riwayat begitu masuk dari provider — cukup tunggu dan tekan \"Periksa OTP\". Kalau sudah lebih dari 10 menit belum masuk, tulis \"admin\" beserta nomor order supaya kami cek.",
+  },
+  {
+    keys: ["server", "v1", "v2", "v3", "v4", "stok", "habis"],
+    answer:
+      "Ada 4 server: Server v1 (pilihan terlengkap, paling banyak negara & layanan) dan Server v2–v4 sebagai cadangan. Kalau stok di satu server habis atau gagal, coba server lain ya.",
+  },
+  {
+    keys: ["daftar", "akun", "login", "password", "lupa", "masuk"],
+    answer:
+      "Akun dibuat dengan email + password. Kalau lupa password, tulis \"admin\" dengan email akunmu, nanti admin bantu reset. Jangan pernah bagikan password ke siapa pun, termasuk ke kami 🙏",
+  },
+  {
+    keys: ["promo", "voucher", "kode promo", "diskon"],
+    answer:
+      "Kode promo bisa dimasukkan di menu Kode Promo pada halaman akun. Kalau kodemu tidak bisa dipakai, tulis \"admin\" ya.",
+  },
+  {
+    keys: ["wa", "whatsapp", "telegram", "kontak", "hubungi"],
+    answer:
+      "Kamu bisa lanjut lewat WhatsApp lewat menu Bantuan di halaman ini, atau tulis \"admin\" supaya saya sambungkan ke admin/CS kami.",
+  },
+];
+
+const FALLBACK_ANSWER =
+  "Terima kasih, pesanmu sudah kami terima 🙏\nKalau pertanyaannya soal saldo, OTP, atau transaksi tertentu, tulis \"admin\" supaya saya sambungkan ke admin/CS kami — sertakan nomor ordernya ya.";
+
+const HUMAN_MESSAGE =
+  "Baik, saya sambungkan ke admin/CS kami ya 🙏\nTulis detailnya di chat ini (sertakan nomor order kalau ada), admin akan balas di halaman ini juga.";
+
+const WAITING_MESSAGE =
+  "Pesanmu sudah masuk ke admin/CS kami 🙏\nBalasannya muncul di halaman ini juga. Sambil menunggu, kamu bisa lanjut lewat WhatsApp/Telegram di menu Bantuan.";
 
 /** Kata kunci yang membuat percakapan langsung dialihkan ke admin manusia. */
 const ESCALATE_WORDS = [
@@ -81,53 +156,44 @@ const ESCALATE_WORDS = [
   "saldo hilang",
 ];
 
-const HUMAN_MESSAGE =
-  "Baik, saya sambungkan ke admin/CS kami ya 🙏\nTulis detailnya di chat ini (sertakan nomor order kalau ada), admin akan balas di halaman ini juga.";
-
 function wantsHuman(text: string): boolean {
   const s = (text || "").toLowerCase();
   return ESCALATE_WORDS.some((w) => s.includes(w));
 }
 
-/** Tanya asisten AI (OpenAI). Mengembalikan pesan error yang jelas kalau gagal. */
-async function askOpenAi(
-  history: Array<{ role: string; content: string }>
-): Promise<{ ok: boolean; text?: string; error?: string }> {
-  const key = (process.env.OPENAI_API_KEY || "").trim();
-  if (!key) return { ok: false, error: "OPENAI_API_KEY belum diatur." };
-  try {
-    const res = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: (process.env.OPENAI_MODEL || "gpt-4o-mini").trim(),
-        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
-        temperature: 0.3,
-        max_tokens: 350,
-      }),
-      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
-    });
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      return { ok: false, error: `OpenAI HTTP ${res.status}: ${text.slice(0, 200)}` };
-    }
-    const json = JSON.parse(text);
-    const content = json?.choices?.[0]?.message?.content;
-    if (!content) return { ok: false, error: "Balasan AI kosong." };
-    return { ok: true, text: String(content).trim().slice(0, 1500) };
-  } catch (err: any) {
-    return { ok: false, error: String(err?.message || err).slice(0, 200) };
+function autoAnswer(text: string): string {
+  const s = (text || "").toLowerCase();
+  for (const item of AUTO_REPLIES) {
+    if (item.keys.some((k) => s.includes(k))) return item.answer;
   }
+  return FALLBACK_ANSWER;
 }
 
 /* =====================================================================
  * Bagian customer
  * ===================================================================== */
 
-/** Kirim pesan ke CS. Dijawab otomatis oleh AI, atau dialihkan ke admin. */
+/** Pengaturan bantuan untuk halaman customer (publik). */
+export const publicConfig = action({
+  args: {},
+  handler: async (ctx) => {
+    const cfg = await readConfig(ctx);
+    const wa = waLink(cfg.waNumber);
+    const tg = tgLink(cfg.telegram);
+    return {
+      ok: true,
+      autoReply: cfg.autoReply,
+      contactEnabled: cfg.contactEnabled,
+      // Kontak ditutup -> jangan kirim tautannya ke browser sama sekali.
+      waUrl: cfg.contactEnabled ? wa.url : null,
+      waNumber: cfg.contactEnabled ? wa.number : "",
+      tgUrl: cfg.contactEnabled ? tg.url : null,
+      tgName: cfg.contactEnabled ? tg.name : "",
+    };
+  },
+});
+
+/** Kirim pesan ke CS. Dijawab balasan otomatis sederhana, atau dialihkan ke admin. */
 export const sendMessage = action({
   args: { userId: v.id("appUsers"), body: v.string() },
   handler: async (ctx, args) => {
@@ -156,7 +222,7 @@ export const sendMessage = action({
       countForStaff: true,
     });
 
-    // Sudah ditangani admin -> tidak dijawab AI lagi, cukup tunggu admin.
+    // Sudah ditangani admin -> tidak dijawab otomatis lagi, cukup tunggu admin.
     if (thread.mode === "human") {
       return { ok: true, mode: "human" };
     }
@@ -173,29 +239,23 @@ export const sendMessage = action({
       return { ok: true, mode: "human" };
     }
 
-    // Bangun konteks percakapan untuk AI.
-    const history = await ctx.runQuery(I.supportDb.messagesOf, { threadId, limit: HISTORY_LIMIT });
-    const messages = (history as any[])
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: String(m.body) }));
-
-    const answer = await askOpenAi(messages);
-    if (!answer.ok || !answer.text) {
-      // AI tidak bisa dipakai -> jangan biarkan customer menunggu tanpa jawaban.
+    // Balasan otomatis dimatikan Owner -> jangan biarkan customer menunggu tanpa kabar.
+    const cfg = await readConfig(ctx);
+    if (!cfg.autoReply) {
       await ctx.runMutation(I.supportDb.addMessage, {
         threadId,
         role: "assistant",
-        body: `Maaf, asisten otomatis sedang tidak bisa dipakai 🙏\n${HUMAN_MESSAGE}`,
+        body: WAITING_MESSAGE,
         countForUser: true,
         mode: "human",
       });
-      return { ok: false, error: answer.error || "Asisten AI gagal menjawab.", mode: "human" };
+      return { ok: true, mode: "human" };
     }
 
     await ctx.runMutation(I.supportDb.addMessage, {
       threadId,
       role: "assistant",
-      body: answer.text,
+      body: autoAnswer(body),
       countForUser: true,
     });
     return { ok: true, mode: "ai" };
@@ -262,14 +322,14 @@ export const staffReply = action({
       body,
       authorName: actor.fullName || actor.username,
       countForUser: true,
-      // Setelah admin turun tangan, AI berhenti menjawab otomatis.
+      // Setelah admin turun tangan, balasan otomatis berhenti.
       mode: "human",
     });
     return { ok: true };
   },
 });
 
-/** Ubah status percakapan: aktifkan AI lagi, alihkan ke admin, atau tutup. */
+/** Ubah status percakapan: balasan otomatis lagi, alihkan ke admin, atau tutup. */
 export const staffSetMode = action({
   args: { actorId: v.id("appUsers"), threadId: v.id("supportThreads"), mode: v.string() },
   handler: async (ctx, args) => {
@@ -281,17 +341,36 @@ export const staffSetMode = action({
   },
 });
 
-/** Status asisten AI (untuk info di Panel Admin). */
-export const staffAiStatus = action({
+/** Pengaturan bantuan (Owner) — dipakai tab "Bantuan CS" di Panel Admin. */
+export const staffGetConfig = action({
   args: { actorId: v.id("appUsers") },
   handler: async (ctx, args) => {
     const actor = await requireStaff(ctx, args.actorId);
     if (!actor) return { ok: false, error: "Khusus Owner/CS." };
-    const key = (process.env.OPENAI_API_KEY || "").trim();
-    return {
-      ok: true,
-      aiEnabled: Boolean(key),
-      model: (process.env.OPENAI_MODEL || "gpt-4o-mini").trim(),
+    const cfg = await readConfig(ctx);
+    return { ok: true, config: cfg };
+  },
+});
+
+/** Simpan pengaturan bantuan: balasan otomatis & nomor WA/Telegram manual. */
+export const staffSetConfig = action({
+  args: {
+    actorId: v.id("appUsers"),
+    autoReply: v.boolean(),
+    contactEnabled: v.boolean(),
+    waNumber: v.string(),
+    telegram: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireStaff(ctx, args.actorId);
+    if (!actor) return { ok: false, error: "Khusus Owner/CS." };
+    const cfg: SupportConfig = {
+      autoReply: !!args.autoReply,
+      contactEnabled: !!args.contactEnabled,
+      waNumber: (args.waNumber || "").trim().slice(0, 40),
+      telegram: (args.telegram || "").trim().slice(0, 120),
     };
+    await ctx.runMutation(I.wallet.setSettings, { key: SETTINGS_KEY, value: cfg });
+    return { ok: true, config: cfg };
   },
 });
