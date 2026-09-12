@@ -541,12 +541,16 @@ export async function apiPromoRedeem(
   return callAction("otpWatch:promoRedeem", { userId, code });
 }
 
-/** Info kode undangan & bonus referral akun sendiri. */
+/** Info kode undangan & bonus ajak teman akun sendiri. */
 export async function apiMyReferral(userId: string): Promise<{
   ok: boolean;
   refCode?: string;
   referredBy?: string;
   referralBonusAt?: number | null;
+  /** Total bonus yang sudah diterima karena mengundang teman (rupiah). */
+  referralEarned?: number;
+  /** Jumlah teman yang sudah memenuhi syarat deposit pertama. */
+  referralInvites?: number;
   error?: string;
 }> {
   return callAction("otpWatch:myReferral", { userId });
@@ -699,7 +703,7 @@ export async function apiManualDepositCreate(
 export async function apiAdminDepositSettle(
   actorId: string,
   referenceId: string
-): Promise<{ ok: boolean; amount?: number; balance?: number; bonus?: number; error?: string }> {
+): Promise<{ ok: boolean; amount?: number; balance?: number; referrerBonus?: number; error?: string }> {
   return callAction("shop:adminDepositSettle", { actorId, referenceId });
 }
 

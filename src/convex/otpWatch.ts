@@ -482,6 +482,8 @@ export const myReferral = action({
       refCode: u.refCode || "",
       referredBy: u.referredBy || "",
       referralBonusAt: u.referralBonusAt || null,
+      referralEarned: Math.max(0, Math.floor(Number(u.referralEarned) || 0)),
+      referralInvites: Math.max(0, Math.floor(Number(u.referralInvites) || 0)),
     };
   },
 });

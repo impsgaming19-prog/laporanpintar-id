@@ -4,7 +4,9 @@ import { internalMutation, internalQuery } from "./_generated/server";
 /* Fungsi-fungsi ini INTERNAL (tidak bisa dipanggil langsung dari browser) —
  * hanya dipakai oleh action di shop.ts lewat ctx.runMutation/runQuery. */
 
-const REFERRAL_MIN_DEPOSIT = 10000;
+/** Deposit pertama minimal supaya bonus undangan cair. */
+const REFERRAL_MIN_DEPOSIT = 20000;
+/** Bonus untuk PENGUNDANG (yang mengajak), sekali per teman yang memenuhi syarat. */
 const REFERRAL_BONUS = 5000;
 
 /** Kode undangan acak 8 karakter (tanpa 0/O/1/I biar gampang diketik). */
@@ -220,8 +222,9 @@ export const settleDeposit = internalMutation({
     await ctx.db.patch(dep._id, { status: "paid", paidAt: Date.now() });
     await ctx.db.patch(user._id, { balance: balance + amount });
 
-    // #3 bonus ajak teman: deposit pertama (>= Rp 10.000) dari akun baru yang
-    // terdaftar lewat kode undangan -> dua-duanya dapat Rp 5.000 (sekali saja).
+    // #3 bonus ajak teman: deposit PERTAMA (minimal Rp 20.000) dari akun yang
+    // mendaftar lewat kode undangan -> PENGUNDANG dapat Rp 5.000.
+    // Sekali saja per teman yang diundang (ditandai referralBonusAt).
     if (amount >= REFERRAL_MIN_DEPOSIT && user.referredBy && !user.referralBonusAt) {
       const referrer = await ctx.db
         .query("appUsers")
@@ -229,10 +232,13 @@ export const settleDeposit = internalMutation({
         .first();
       if (referrer && referrer.role === "customer" && String(referrer._id) !== String(user._id)) {
         const rb = Math.max(0, Math.floor(Number(referrer.balance) || 0));
-        await ctx.db.patch(referrer._id, { balance: rb + REFERRAL_BONUS });
-        const nb = balance + amount + REFERRAL_BONUS;
-        await ctx.db.patch(user._id, { balance: nb, referralBonusAt: Date.now() });
-        return { ok: true, balance: nb, bonus: REFERRAL_BONUS };
+        await ctx.db.patch(referrer._id, {
+          balance: rb + REFERRAL_BONUS,
+          referralEarned: Math.max(0, Math.floor(Number(referrer.referralEarned) || 0)) + REFERRAL_BONUS,
+          referralInvites: Math.max(0, Math.floor(Number(referrer.referralInvites) || 0)) + 1,
+        });
+        await ctx.db.patch(user._id, { referralBonusAt: Date.now() });
+        return { ok: true, balance: balance + amount, referrerBonus: REFERRAL_BONUS };
       }
       await ctx.db.patch(user._id, { referralBonusAt: Date.now() });
     }
@@ -420,6 +426,8 @@ export const userDetail = internalQuery({
       refCode: u.refCode || "",
       referredBy: u.referredBy || "",
       referralBonusAt: u.referralBonusAt || null,
+      referralEarned: Math.max(0, Math.floor(Number(u.referralEarned) || 0)),
+      referralInvites: Math.max(0, Math.floor(Number(u.referralInvites) || 0)),
       usedCodes: u.usedCodes || [],
     };
   },

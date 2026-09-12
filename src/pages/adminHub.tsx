@@ -868,7 +868,13 @@ export function AdminHub({
     setLoading(true);
     const res = await apiAdminDepositSettle(actorId, d.referenceId).catch(() => null);
     if (res?.ok) {
-      flash("ok", `Deposit ${d.referenceId} diterima — saldo ${d.fullName || d.username} +${fmtRp(d.amount || 0)} (${fmtRp(res.balance || 0)}).`);
+      const bonusNote = res.referrerBonus
+        ? ` Bonus ajak teman Rp ${fmtRp(res.referrerBonus)} dikirim ke pengundangnya.`
+        : "";
+      flash(
+        "ok",
+        `Deposit ${d.referenceId} diterima — saldo ${d.fullName || d.username} +${fmtRp(d.amount || 0)} (${fmtRp(res.balance || 0)}).${bonusNote}`
+      );
       reload();
     } else {
       flash("err", res?.error || "Gagal menyetujui deposit.");

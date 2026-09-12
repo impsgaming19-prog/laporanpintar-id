@@ -15,7 +15,12 @@ export default defineSchema({
     // #3 referral: kode undangan + siapa yang mengundang + kapan bonus diberikan
     refCode: v.optional(v.string()),
     referredBy: v.optional(v.string()),
+    /** Diisi saat bonus undangan akun ini sudah dibayarkan (sekali saja). */
     referralBonusAt: v.optional(v.number()),
+    /** Total bonus yang sudah diterima karena MENGUNDANG teman (rupiah). */
+    referralEarned: v.optional(v.number()),
+    /** Jumlah teman yang deposit pertamanya sudah memenuhi syarat. */
+    referralInvites: v.optional(v.number()),
     // #2 kode promo/voucher: daftar kode yang sudah pernah dipakai akun ini
     usedCodes: v.optional(v.array(v.string())),
   })

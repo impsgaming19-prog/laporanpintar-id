@@ -912,8 +912,8 @@ function AuthModal({
             <p className="text-[11px] text-emerald-300/90 leading-relaxed mb-4 flex gap-1.5 -mt-1">
               <Gift className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>
-                Didaftarkan pakai kode undangan? Setelah <b>deposit pertamamu ≥ Rp 10.000</b>, kamu & temanmu
-                masing-masing dapat <b>bonus Rp 5.000</b>.
+                Didaftarkan pakai kode undangan? Teman yang mengundangmu dapat <b>bonus Rp 5.000</b> setelah kamu
+                melakukan <b>deposit pertama minimal Rp 20.000</b>.
               </span>
             </p>
           </>

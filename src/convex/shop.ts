@@ -1928,7 +1928,7 @@ export const adminDepositSettle = action({
     }
     const res = await ctx.runMutation(I.wallet.settleDeposit, { referenceId: args.referenceId });
     if (!res.ok) return { ok: false, error: res.error || "Gagal menyetujui deposit." };
-    return { ok: true, amount: dep.amount, balance: res.balance, bonus: res.bonus };
+    return { ok: true, amount: dep.amount, balance: res.balance, referrerBonus: res.referrerBonus };
   },
 });
 

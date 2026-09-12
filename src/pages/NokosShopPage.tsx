@@ -611,7 +611,13 @@ export default function NokosShopPage() {
   const [promoCode, setPromoCode] = useState("");
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoMsg, setPromoMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  const [refInfo, setRefInfo] = useState<{ refCode: string; referredBy: string; referralBonusAt: number | null } | null>(null);
+  const [refInfo, setRefInfo] = useState<{
+    refCode: string;
+    referredBy: string;
+    referralBonusAt: number | null;
+    referralEarned: number;
+    referralInvites: number;
+  } | null>(null);
 
   /* ---------- panel admin (owner/cs) ---------- */
   const [adminOpen, setAdminOpen] = useState(false);
@@ -873,7 +879,13 @@ export default function NokosShopPage() {
     try {
       const r = await apiMyReferral(session.user.id);
       if (r.ok && r.refCode) {
-        setRefInfo({ refCode: r.refCode, referredBy: r.referredBy || "", referralBonusAt: r.referralBonusAt ?? null });
+        setRefInfo({
+          refCode: r.refCode,
+          referredBy: r.referredBy || "",
+          referralBonusAt: r.referralBonusAt ?? null,
+          referralEarned: r.referralEarned || 0,
+          referralInvites: r.referralInvites || 0,
+        });
       }
     } catch {
       /* ignore */
@@ -1623,10 +1635,12 @@ export default function NokosShopPage() {
             style={{ background: "linear-gradient(150deg, rgba(225,6,0,0.08), rgba(255,255,255,0.01))", boxShadow: "0 16px 40px -26px rgba(225,6,0,0.45)" }}
           >
             <p className="text-sm font-bold text-white flex items-center gap-2 mb-1">
-              <Gift className="w-4 h-4" style={{ color: "#ff6b63" }} /> Ajak Teman — Dua-duanya Dapat Rp 5.000
+              <Gift className="w-4 h-4" style={{ color: "#ff6b63" }} /> Ajak Teman — Kamu Dapat Rp 5.000
             </p>
             <p className="text-[12px] text-zinc-500 mb-3">
-              Bagikan kode undanganmu. Saat teman daftar & isi saldo pertamanya ≥ Rp 10.000, bonus masuk ke kalian berdua.
+              Bagikan kode undanganmu. Saat temanmu daftar lalu{" "}
+              <b className="text-zinc-300">isi saldo pertamanya minimal Rp 20.000</b>, kamu langsung dapat bonus{" "}
+              <b className="text-zinc-300">Rp 5.000</b> ke saldo.
             </p>
             {refInfo && refInfo.refCode ? (
               <div className="flex items-center gap-2">
@@ -1642,13 +1656,20 @@ export default function NokosShopPage() {
                 >
                   <Copy className="w-3.5 h-3.5" /> Salin
                 </button>
-                {refInfo.referralBonusAt ? (
+                {refInfo.referralInvites > 0 ? (
                   <span className="text-[11px] text-emerald-300 font-semibold ml-auto flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Bonusmu sudah aktif
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Sudah dapat Rp {formatRupiah(refInfo.referralEarned)} dari{" "}
+                    {refInfo.referralInvites} teman
                   </span>
                 ) : refInfo.referredBy ? (
-                  <span className="text-[11px] text-amber-300 ml-auto">Kamu diajak teman — deposit pertama ≥ Rp 10.000 = bonus</span>
-                ) : null}
+                  <span className="text-[11px] text-amber-300 ml-auto">
+                    {refInfo.referralBonusAt
+                      ? "Kamu diajak teman — bonus untuk pengundangmu sudah masuk"
+                      : "Kamu diajak teman — isi saldo pertama ≥ Rp 20.000, pengundangmu dapat Rp 5.000"}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-zinc-500 ml-auto">Belum ada teman yang memenuhi syarat</span>
+                )}
               </div>
             ) : (
               <p className="text-[12px] text-zinc-500">Kode undanganmu otomatis dibuat — muat ulang halaman sebentar lagi untuk melihatnya.</p>
