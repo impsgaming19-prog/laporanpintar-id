@@ -114,7 +114,7 @@ export function SupportMenuSheet({
         <p className="px-5 pb-5 text-[11px] text-zinc-500 leading-relaxed">
           Laporan lewat chat website selalu tersedia dan tercatat di akunmu.
           {auto
-            ? " Balasan pertama datang otomatis; kalau perlu admin, tulis “admin”."
+            ? " CS otomatis menjawab pertanyaan umum lebih dulu; kalau perlu admin manusia, tulis “admin”."
             : " Admin akan membalas di halaman chat."}
         </p>
       </div>
@@ -192,8 +192,10 @@ export function SupportChatSheet({
 
   const quick = [
     "Cara beli nomor gimana?",
+    "Minimal deposit berapa?",
     "OTP belum masuk",
     "Aturan refund / batal",
+    "Kenapa harga beda tiap server?",
     "Mau bicara dengan admin",
   ];
   const staffMode = mode === "human";
@@ -248,7 +250,8 @@ export function SupportChatSheet({
               <p className="text-[12px] text-zinc-400 mt-1">
                 {auto ? (
                   <>
-                    Tulis pertanyaan atau laporanmu di bawah — dijawab otomatis oleh CS. Kalau perlu admin, tulis{" "}
+                    Tulis pertanyaan atau laporanmu di bawah — dijawab otomatis oleh CS seperti pertanyaan soal harga,
+                    cara isi saldo, OTP, refund, dan kode promo. Kalau perlu admin manusia, tulis{" "}
                     <b className="text-white">admin</b>.
                   </>
                 ) : (
